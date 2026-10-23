@@ -1,0 +1,32 @@
+name: Sync upstream main
+
+on:
+  schedule:
+    # 08:17 Asia/Shanghai; GitHub may delay scheduled runs.
+    - cron: '17 0 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-upstream-main
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    if: github.repository == 'Zesuy/cpa-usage-keeper' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      # Workflow-file updates may require a token with workflow write access.
+      GH_TOKEN: ${{ secrets.UPSTREAM_SYNC_TOKEN || github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Merge upstream into main
+        run: |
+          # Deliberately omit --force: preserve our workflow and surface conflicts.
+          if ! gh repo sync "$GH_REPO" --source Willxup/cpa-usage-keeper --branch main; then
+            echo '::error::Upstream sync failed. Resolve merge conflicts or repository-rule restrictions; if workflow updates are denied, configure UPSTREAM_SYNC_TOKEN with contents and workflows write access.'
+            exit 1
+          fi
