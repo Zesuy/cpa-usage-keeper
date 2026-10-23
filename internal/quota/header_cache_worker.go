@@ -862,6 +862,7 @@ func (s *Service) mergeUsageHeaderQuotaCache(authIndex string, response CheckRes
 			// Persist only incoming rows; untouched cached windows keep their own plan/time.
 			estimateResponse.Subscription = response.Subscription
 			s.rememberCapacityEstimates(authIndex, identity.Type, estimateResponse, observedAt)
+			s.rememberSummarySnapshotForIdentity(identity, estimateResponse, observedAt, false)
 		}
 	}()
 	if generation != s.cacheGeneration {

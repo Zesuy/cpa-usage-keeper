@@ -2,6 +2,7 @@ package quota
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 	"sort"
@@ -14,10 +15,15 @@ import (
 	"gorm.io/gorm/clause"
 )
 
+// SummaryMaxSnapshotAge marks observations as old; it never discards a window
+// that has not reset. Provider refresh cadence remains controlled by Settings.
 const SummaryMaxSnapshotAge = 15 * time.Minute
 
 // SummaryCoverage counts files, never deduplicating email addresses or workspaces.
 type SummaryCoverage struct {
+	Retained         int        `json:"retained"`
+	Expired          int        `json:"expired"`
+	OldestSnapshotAt *time.Time `json:"oldest_snapshot_at,omitempty"`
 	Eligible         int        `json:"eligible"`
 	Current          int        `json:"current"`
 	Direct           int        `json:"direct"`
@@ -35,7 +41,9 @@ type SummaryCoverage struct {
 
 type SummaryRow struct {
 	QuotaRow
-	Coverage SummaryCoverage `json:"coverage"`
+	Coverage      SummaryCoverage `json:"coverage"`
+	UsageState    string          `json:"usage_state"`
+	EstimateState string          `json:"estimate_state"`
 }
 
 type SummaryGroup struct {
@@ -154,7 +162,7 @@ func (s *Service) rememberCapacityEstimates(authIndex, provider string, response
 		return
 	}
 	if s.capacityHistoryInvalid {
-		if err := s.db.Where("1 = 1").Delete(&entities.QuotaCapacityEstimate{}).Error; err != nil {
+		if err := s.clearStoredQuotaSummary(); err != nil {
 			logrus.WithError(err).Warn("quota capacity estimates invalidation retry failed")
 			return
 		}
@@ -249,6 +257,10 @@ func (s *Service) quotaSummaryAt(ctx context.Context, now time.Time) (SummaryRes
 	for _, identity := range identities {
 		authIndexes = append(authIndexes, identity.Identity)
 	}
+	snapshots, err := s.loadSummarySnapshots(ctx, authIndexes)
+	if err != nil {
+		return response, err
+	}
 	var history []entities.QuotaCapacityEstimate
 	if !s.capacityHistoryInvalid {
 		if err := s.db.WithContext(ctx).Where("auth_index IN ?", authIndexes).Find(&history).Error; err != nil {
@@ -292,58 +304,84 @@ func (s *Service) quotaSummaryAt(ctx context.Context, now time.Time) (SummaryRes
 				}
 				row.Coverage.Eligible++
 				task, exists := tasks[identity.Identity]
-				switch {
-				case !exists:
-					row.Coverage.Missing++
-					continue
-				case task.isActive():
+				if exists && task.isActive() {
 					row.Coverage.Pending++
-					continue
-				case task.Status != RefreshTaskStatusCompleted || task.Quota == nil:
-					row.Coverage.Failed++
-					continue
-				case task.Type != "" && normalizeIdentityType(task.Type) != pool.provider:
-					row.Coverage.Missing++
-					continue
-				case task.RefreshedAt.IsZero() || now.Sub(task.RefreshedAt) > SummaryMaxSnapshotAge || task.RefreshedAt.After(now):
-					row.Coverage.Stale++
-					continue
 				}
-				// A window can appear only once per file/pool. Ambiguous duplicate rows are not summed.
-				var matches []QuotaRow
-				for _, quotaRow := range task.Quota.Quota {
-					if quotaRow.Window != nil && quotaRow.Window.Seconds != nil && *quotaRow.Window.Seconds == seconds && summaryPoolForRow(pool.provider, quotaRow) == pool.key {
-						matches = append(matches, quotaRow)
+				failed := exists && task.Status == RefreshTaskStatusFailed
+				if failed {
+					row.Coverage.Failed++
+				}
+				var source QuotaRow
+				var observedAt time.Time
+				plan := ""
+				found := false
+				retained := false
+				if exists && task.Status == RefreshTaskStatusCompleted && task.Quota != nil && (task.Type == "" || normalizeIdentityType(task.Type) == pool.provider) {
+					matches := []QuotaRow{}
+					for _, quotaRow := range task.Quota.Quota {
+						if quotaRow.Window != nil && quotaRow.Window.Seconds != nil && *quotaRow.Window.Seconds == seconds && summaryPoolForRow(pool.provider, quotaRow) == pool.key {
+							matches = append(matches, quotaRow)
+						}
+					}
+					if len(matches) == 0 && task.Source != RefreshSourceUsageHeader {
+						row.Coverage.Unsupported++
+						continue
+					}
+					if len(matches) > 1 {
+						row.Coverage.Unknown++
+						continue
+					}
+					if len(matches) == 1 {
+						source = matches[0]
+						observedAt = task.RefreshedAt
+						plan = summaryPlan(identity, task.Quota)
+						found = true
 					}
 				}
-				if len(matches) == 0 {
-					row.Coverage.Unsupported++
+				if stored, ok := snapshots[capacityKey{identity.Identity, pool.provider, pool.key, seconds}]; !found && ok {
+					// A known changed credential plan cannot reuse the old plan's snapshot.
+					knownPlan := summaryPlan(identity, nil)
+					if (knownPlan == "" || knownPlan == stored.IdentityPlanKey) && json.Unmarshal([]byte(stored.Payload), &source) == nil && source.Window != nil && source.Window.Seconds != nil && *source.Window.Seconds == seconds && summaryPoolForRow(pool.provider, source) == pool.key {
+						observedAt = stored.ObservedAt
+						plan = stored.PlanKey
+						found = true
+						retained = true
+					}
+				}
+				if !found {
+					if !failed && !(exists && task.isActive()) {
+						row.Coverage.Missing++
+					}
 					continue
 				}
-				if len(matches) != 1 {
-					row.Coverage.Unknown++
-					continue
-				}
-				source := matches[0]
-				observedAt := task.RefreshedAt
 				if source.ObservedAt != nil {
 					observedAt = *source.ObservedAt
 				}
-				if observedAt.IsZero() || now.Sub(observedAt) > SummaryMaxSnapshotAge || observedAt.After(now) {
-					row.Coverage.Stale++
+				if observedAt.IsZero() || observedAt.After(now) {
+					row.Coverage.Unknown++
 					continue
 				}
 				reset, resetOK := summaryResetAt(source, observedAt)
 				if !resetOK || !now.Before(reset) {
-					row.Coverage.Stale++
+					row.Coverage.Expired++
 					continue
+				}
+				if now.Sub(observedAt) > SummaryMaxSnapshotAge {
+					row.Coverage.Stale++
+				}
+				if retained {
+					row.Coverage.Retained++
+				}
+				if row.Coverage.OldestSnapshotAt == nil || observedAt.Before(*row.Coverage.OldestSnapshotAt) {
+					stamp := observedAt
+					row.Coverage.OldestSnapshotAt = &stamp
 				}
 				fraction, ok := quotaUsedFraction(source)
 				if !ok {
 					row.Coverage.Unknown++
 					continue
 				}
-				candidate := summaryCandidate{row: source, plan: summaryPlan(identity, task.Quota), fraction: fraction}
+				candidate := summaryCandidate{row: source, plan: plan, fraction: fraction}
 				if source.WindowUsageEstimateTokens != nil && source.WindowUsageEstimateCost != nil && validCapacity(capacityValue{tokens: *source.WindowUsageEstimateTokens, cost: *source.WindowUsageEstimateCost}) {
 					candidate.capacity = &capacityValue{*source.WindowUsageEstimateTokens, *source.WindowUsageEstimateCost, observedAt, "direct"}
 				} else if old, ok := histories[capacityKey{identity.Identity, pool.provider, pool.key, seconds}]; ok && old.PlanKey == candidate.plan && !old.ObservedAt.After(now) {
@@ -427,6 +465,8 @@ func (s *Service) quotaSummaryAt(ctx context.Context, now time.Time) (SummaryRes
 				row.RemainingFraction = &remaining
 			}
 			if row.Coverage.Eligible > 0 {
+				row.UsageState = summaryValueState(row, row.WindowUsageTokens != nil)
+				row.EstimateState = summaryValueState(row, row.WindowUsageEstimateTokens != nil)
 				group.Quota = append(group.Quota, row)
 			}
 		}
@@ -435,6 +475,33 @@ func (s *Service) quotaSummaryAt(ctx context.Context, now time.Time) (SummaryRes
 		}
 	}
 	return response, nil
+}
+
+// States describe data availability independently of the UI's current/estimate switch.
+func summaryValueState(row SummaryRow, available bool) string {
+	cov := row.Coverage
+	if available {
+		if cov.Stale > 0 || cov.Retained > 0 {
+			return "cached"
+		}
+		return "current"
+	}
+	switch {
+	case cov.Unsupported == cov.Eligible:
+		return "unsupported"
+	case cov.Expired > 0:
+		return "reset"
+	case cov.Pending > 0:
+		return "pending"
+	case cov.Failed > 0:
+		return "failed"
+	case cov.Missing > 0:
+		return "missing"
+	case row.WindowUsageTokens != nil:
+		return "insufficient_samples"
+	default:
+		return "missing_usage"
+	}
 }
 
 func (stats *SummaryUsageStats) add(identity entities.UsageIdentity) error {

@@ -151,6 +151,78 @@ describe('QuotaSummaryCard', () => {
     expect(container.textContent).toContain('quota_summary_unknown')
   })
 
+  it.each([0, 2])('retains cached amounts and observation time with %i pending refreshes', async (pending) => {
+    const cached = structuredClone(data)
+    cached.pending = pending
+    for (const row of cached.groups[0].quota) {
+      row.usage_state = 'cached'
+      row.estimate_state = 'cached'
+      row.coverage!.retained = 3
+      row.coverage!.stale = 3
+      row.coverage!.oldest_snapshot_at = '2026-10-23T06:15:00Z'
+      row.coverage!.pending = pending
+      row.coverage!.failed = pending ? 0 : 1
+    }
+    fetchSummary.mockResolvedValue(cached)
+    await render()
+    expect(container.textContent).toContain('80%')
+    expect(container.textContent).toContain('1.00M')
+    expect(container.textContent).toContain('quota_summary_cached')
+    expect(container.querySelector('time')?.dateTime).toBe('2026-10-23T06:15:00Z')
+    expect(container.querySelector('time')?.textContent).toBe('10/23 14:15')
+    expect(button(pending ? 'quota_summary_pending' : 'quota_summary_refresh_all').disabled).toBe(Boolean(pending))
+    await act(async () => button('credentials_quota_usage_mode_estimated').click())
+    expect(container.textContent).toContain('5.00M')
+    expect(container.textContent).toContain('quota_summary_cached')
+  })
+
+  it.each(['reset', 'pending', 'failed', 'missing', 'missing_usage'] as const)('explains %s without showing obsolete window data', async (state) => {
+    const unavailable = structuredClone(data)
+    const row = unavailable.groups[0].quota[0]
+    delete row.window_usage_tokens
+    delete row.window_usage_cost
+    delete row.window_usage_estimate_tokens
+    delete row.window_usage_estimate_cost
+    delete row.remainingFraction
+    row.usage_state = state
+    row.estimate_state = state
+    row.coverage!.current = 0
+    row.coverage!.direct = 0
+    row.coverage!.historical = 0
+    row.coverage!.peer = 0
+    fetchSummary.mockResolvedValue(unavailable)
+    await render()
+    expect(container.textContent).toContain(`quota_summary_state_${state}`)
+    expect(container.textContent).not.toContain('80%')
+    expect(container.textContent).not.toContain('1.00M')
+    expect(container.textContent).not.toContain('$2.00')
+    // Weekly remains available independently of the expired/missing 5h window.
+    expect(container.textContent).toContain('4.00M')
+    await act(async () => button('credentials_quota_usage_mode_estimated').click())
+    expect(container.textContent).toContain(`quota_summary_state_${state}`)
+    expect(container.textContent).not.toContain('5.00M')
+    expect(container.textContent).toContain('12.00M')
+  })
+
+  it('distinguishes a real zero from insufficient estimate samples', async () => {
+    const zero = structuredClone(data)
+    const row = zero.groups[0].quota[0]
+    row.window_usage_tokens = 0
+    row.window_usage_cost = 0
+    row.usage_state = 'current'
+    row.estimate_state = 'insufficient_samples'
+    delete row.window_usage_estimate_tokens
+    delete row.window_usage_estimate_cost
+    delete row.remainingFraction
+    fetchSummary.mockResolvedValue(zero)
+    await render()
+    expect(container.textContent).toContain('$0.00')
+    expect(container.textContent).not.toContain('quota_summary_state_insufficient_samples')
+    await act(async () => button('credentials_quota_usage_mode_estimated').click())
+    expect(container.textContent).toContain('quota_summary_state_insufficient_samples')
+    expect(container.textContent).not.toContain('$0.00')
+  })
+
   it('refreshes the complete summary scope once and shows progress', async () => {
     await render()
     fetchSummary.mockResolvedValue({ ...data, pending: 3 })

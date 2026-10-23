@@ -517,9 +517,16 @@ export interface UsageQuotaRow {
   window_usage_estimate_tokens?: number
   window_usage_estimate_cost?: number
   coverage?: QuotaSummaryCoverage
+  usage_state?: QuotaSummaryDataState
+  estimate_state?: QuotaSummaryDataState
 }
 
+export type QuotaSummaryDataState = 'current' | 'cached' | 'unsupported' | 'reset' | 'pending' | 'failed' | 'missing' | 'insufficient_samples' | 'missing_usage'
+
 export interface QuotaSummaryCoverage {
+  retained?: number
+  expired?: number
+  oldest_snapshot_at?: string
   eligible: number
   current: number
   direct: number

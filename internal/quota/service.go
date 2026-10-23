@@ -40,6 +40,9 @@ type Service struct {
 	refreshTasks map[string]*RefreshTaskRecord
 	// Guarded by estimateMu; a failed cost invalidation must not reuse old prices.
 	capacityHistoryInvalid bool
+	// Successful summary observations survive refresh task replacement; guarded by estimateMu.
+	summarySnapshots      map[capacityKey]entities.QuotaSummarySnapshot
+	summarySnapshotScopes map[string]summarySnapshotScope
 	// cacheGeneration 与 refreshTasks 共用 refreshMu；清理前启动的任务和 Header 不得发布结果。
 	cacheGeneration uint64
 	// nextRefreshTaskCleanupAt 由 refreshMu 保护，只限制读取接口的全量清理频率。

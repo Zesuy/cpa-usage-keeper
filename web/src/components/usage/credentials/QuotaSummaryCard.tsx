@@ -228,16 +228,24 @@ function QuotaSummaryWindowBar({
 
   const estimated = coverage.direct + coverage.historical + coverage.peer
   const covered = mode === 'current' ? coverage.current : estimated
-  const details = t('usage_stats.quota_summary_details', { ...coverage })
+  const details = t('usage_stats.quota_summary_details', { retained: 0, expired: 0, ...coverage })
   const filledCount = coverage.historical + coverage.peer
   const oldestEstimateAt = coverage.oldest_estimate_at
   const isUnknown = mode === 'estimated' ? !display.windowUsageEstimate : !display.windowUsage
+  const state = mode === 'estimated' ? row.estimate_state : row.usage_state
+  const snapshotAt = coverage.oldest_snapshot_at
+  const snapshotLabel = snapshotAt ? formatQuotaResetLabel(snapshotAt, timeZone) || new Date(snapshotAt).toLocaleString() : ''
+  const snapshotTitle = snapshotAt ? t('usage_stats.quota_summary_snapshot_date', { date: snapshotLabel }) : ''
+  const unavailableKey = state && state !== 'current' && state !== 'cached'
+    ? `usage_stats.quota_summary_state_${state}`
+    : mode === 'estimated' ? 'usage_stats.quota_summary_unknown' : 'usage_stats.quota_summary_current_unknown'
 
   const headerExtra = (
     <span className={styles.windowHeaderExtra}>
       <span className={styles.coverageTag} title={details}>
         {t('usage_stats.quota_summary_coverage', { covered, total: coverage.eligible })}
       </span>
+      {state === 'cached' && <span className={styles.coverageTag} title={snapshotTitle}>{t('usage_stats.quota_summary_cached')}</span>}
       {mode === 'estimated' && filledCount > 0 && (
         <span className={`${styles.coverageTag} ${styles.filledTag}`}>
           {t('usage_stats.quota_summary_filled', { count: filledCount })}
@@ -249,6 +257,7 @@ function QuotaSummaryWindowBar({
         </summary>
         <div className={styles.sourcesPopover} role="tooltip">
           <div>{details}</div>
+          {snapshotAt && <div className={styles.historyDateText}>{snapshotTitle}</div>}
           {mode === 'estimated' && oldestEstimateAt && (
             <div className={styles.historyDateText}>
               {t('usage_stats.quota_summary_estimate_date', {
@@ -269,10 +278,11 @@ function QuotaSummaryWindowBar({
         timeZone={timeZone}
         showGroupMetadata={false}
         headerExtra={headerExtra}
+        metaExtra={snapshotAt ? <time dateTime={snapshotAt} title={snapshotTitle} className={quotaStyles.credentialQuotaResetTime}>{snapshotLabel}</time> : undefined}
       />
       {isUnknown && (
         <div className={styles.windowMetaNote}>
-          {t(mode === 'estimated' ? 'usage_stats.quota_summary_unknown' : 'usage_stats.quota_summary_current_unknown')}
+          {t(unavailableKey)}
         </div>
       )}
     </div>

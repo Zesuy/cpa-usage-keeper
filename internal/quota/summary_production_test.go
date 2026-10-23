@@ -113,6 +113,7 @@ func TestQuotaSummaryFromProductionBackup(t *testing.T) {
 			cycleRows++
 		}
 		summaryTestCache(s, identity, quotaRows, refreshed)
+		s.rememberSummarySnapshot(identity.Identity, "codex", *s.refreshTasks[identity.Identity].Quota, refreshed, true)
 	}
 	if cycleRows == 0 || numericMatches == 0 {
 		t.Fatal("backup has no usable numeric cycle fixtures")
@@ -139,12 +140,28 @@ func TestQuotaSummaryFromProductionBackup(t *testing.T) {
 	if result.Groups[0].Stats != expectedStats {
 		t.Fatal("summary metrics differ from stored credential counters")
 	}
+	restored, err := summaryTestService(db).quotaSummaryAt(context.Background(), generatedAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, row := range result.Groups[0].Quota {
+		recovered := restored.Groups[0].Quota[i]
+		if row.WindowUsageTokens != nil {
+			if recovered.WindowUsageTokens == nil || *row.WindowUsageTokens != *recovered.WindowUsageTokens {
+				t.Fatal("restart changed production window token totals")
+			}
+			assertNear(t, recovered.WindowUsageCost, *row.WindowUsageCost)
+		}
+		if row.WindowUsageEstimateTokens != nil {
+			assertNear(t, recovered.WindowUsageEstimateTokens, *row.WindowUsageEstimateTokens)
+		}
+	}
 	for _, aggregate := range result.Groups[0].Quota {
 		var expectedTokens int64
 		var expectedCost float64
 		for _, task := range s.refreshTasks {
 			for _, row := range task.Quota.Quota {
-				if *row.Window.Seconds != *aggregate.Window.Seconds || generatedAt.Sub(*row.ObservedAt) > SummaryMaxSnapshotAge {
+				if *row.Window.Seconds != *aggregate.Window.Seconds {
 					continue
 				}
 				reset, ok := summaryResetAt(row, *row.ObservedAt)

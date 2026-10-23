@@ -534,6 +534,7 @@ func (s *Service) markRefreshTaskCompleted(task *RefreshTaskRecord, response Che
 		s.refreshMu.Unlock()
 		if published {
 			s.rememberCapacityEstimates(task.AuthIndex, task.Type, response, now)
+			s.rememberSummarySnapshot(task.AuthIndex, task.Type, response, now, true)
 		}
 	}()
 	// 同锁比较代数和具体任务后发布，清理前的响应不能复活旧缓存或覆盖新任务。

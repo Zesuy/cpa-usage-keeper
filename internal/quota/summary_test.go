@@ -20,7 +20,7 @@ func summaryTestDB(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = db.AutoMigrate(&entities.UsageIdentity{}, &entities.QuotaCapacityEstimate{}); err != nil {
+	if err = db.AutoMigrate(&entities.UsageIdentity{}, &entities.QuotaCapacityEstimate{}, &entities.QuotaSummarySnapshot{}); err != nil {
 		t.Fatal(err)
 	}
 	sqlDB, _ := db.DB()
@@ -244,7 +244,7 @@ func TestSummaryExcludesInvalidCredentialsAndClassifiesStaleSnapshots(t *testing
 		t.Fatal(err)
 	}
 	cov := result.Groups[0].Quota[0].Coverage
-	if result.Eligible != 7 || result.Pending != 1 || cov.Direct != 1 || cov.Stale != 3 || cov.Missing != 1 || cov.Failed != 1 || cov.Pending != 1 {
+	if result.Eligible != 7 || result.Pending != 1 || cov.Direct != 2 || cov.Stale != 1 || cov.Expired != 2 || cov.Missing != 1 || cov.Failed != 1 || cov.Pending != 1 {
 		t.Fatalf("%+v eligible=%d pending=%d", cov, result.Eligible, result.Pending)
 	}
 }
@@ -279,7 +279,7 @@ func TestSummaryPublicationsPersistEstimatesAndRetainRowFreshness(t *testing.T) 
 		t.Fatal(err)
 	}
 	assertNear(t, got.Groups[0].Quota[0].WindowUsageEstimateTokens, 600)
-	if got.Groups[0].Quota[1].Coverage.Stale != 1 || got.Groups[0].Quota[1].WindowUsageTokens != nil {
+	if got.Groups[0].Quota[1].Coverage.Stale != 1 || got.Groups[0].Quota[1].WindowUsageTokens == nil {
 		t.Fatal("partial header rejuvenated weekly data")
 	}
 	var persisted entities.QuotaCapacityEstimate
@@ -315,6 +315,10 @@ func TestSummaryPublicationsPersistEstimatesAndRetainRowFreshness(t *testing.T) 
 	db.Model(&entities.QuotaCapacityEstimate{}).Count(&count)
 	if count != 0 {
 		t.Fatal("stale generation repopulated persisted history")
+	}
+	db.Model(&entities.QuotaSummarySnapshot{}).Count(&count)
+	if count != 0 {
+		t.Fatal("stale generation repopulated saved snapshots")
 	}
 }
 

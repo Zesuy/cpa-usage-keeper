@@ -3,7 +3,6 @@ package quota
 import (
 	"time"
 
-	"cpa-usage-keeper/internal/entities"
 	"github.com/sirupsen/logrus"
 )
 
@@ -27,12 +26,12 @@ func (s *Service) InvalidateStoredCostCache() {
 	s.usageHeaderPending = make(map[string]*UsageHeaderSnapshot, usageHeaderPendingIdentityLimit)
 	s.usageHeaderMu.Unlock()
 	s.refreshMu.Unlock()
-	if s.db != nil && s.db.Migrator().HasTable(&entities.QuotaCapacityEstimate{}) {
-		err := s.db.Where("1 = 1").Delete(&entities.QuotaCapacityEstimate{}).Error
-		s.capacityHistoryInvalid = err != nil
-		if err != nil {
-			logrus.WithError(err).Error("quota capacity estimates invalidation failed")
-		}
+	s.summarySnapshots = nil
+	s.summarySnapshotScopes = nil
+	err := s.clearStoredQuotaSummary()
+	s.capacityHistoryInvalid = err != nil
+	if err != nil {
+		logrus.WithError(err).Error("quota summary storage invalidation failed")
 	}
 }
 

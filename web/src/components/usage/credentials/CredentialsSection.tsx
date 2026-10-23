@@ -2073,7 +2073,7 @@ export function formatQuotaBillingUsageAriaLabel(t: Translate, billingUsage: Non
   })
 }
 
-export function QuotaBar({ quota, quotaUsageMode, timeZone, showGroupMetadata = true, tooltipAlignRight = false, headerExtra }: { quota: DisplayQuota; quotaUsageMode: QuotaUsageMode; timeZone?: string; showGroupMetadata?: boolean; tooltipAlignRight?: boolean; headerExtra?: ReactNode }) {
+export function QuotaBar({ quota, quotaUsageMode, timeZone, showGroupMetadata = true, tooltipAlignRight = false, headerExtra, metaExtra }: { quota: DisplayQuota; quotaUsageMode: QuotaUsageMode; timeZone?: string; showGroupMetadata?: boolean; tooltipAlignRight?: boolean; headerExtra?: ReactNode; metaExtra?: ReactNode }) {
   const { t } = useTranslation()
   // 条宽使用剩余额度百分比，颜色跟随剩余风险状态从绿到黄到红。
   const percent = quota.barPercent ?? 0
@@ -2127,6 +2127,7 @@ export function QuotaBar({ quota, quotaUsageMode, timeZone, showGroupMetadata = 
           </strong>
         )}
         {resetLabel && <span className={styles.credentialQuotaResetTime}>{resetLabel}</span>}
+        {metaExtra}
       </div>
     </div>
   )
