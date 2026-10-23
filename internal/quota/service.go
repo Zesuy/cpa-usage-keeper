@@ -34,8 +34,12 @@ type Service struct {
 	// quotaUpstreamResponsesEnabled 控制刷新任务是否把 CPA 转发的完整上游响应写入最新限额缓存。
 	quotaUpstreamResponsesEnabled bool
 
-	refreshMu    sync.Mutex
+	refreshMu sync.Mutex
+	// estimateMu serializes estimate publication with stored-cost invalidation.
+	estimateMu   sync.Mutex
 	refreshTasks map[string]*RefreshTaskRecord
+	// Guarded by estimateMu; a failed cost invalidation must not reuse old prices.
+	capacityHistoryInvalid bool
 	// cacheGeneration 与 refreshTasks 共用 refreshMu；清理前启动的任务和 Header 不得发布结果。
 	cacheGeneration uint64
 	// nextRefreshTaskCleanupAt 由 refreshMu 保护，只限制读取接口的全量清理频率。

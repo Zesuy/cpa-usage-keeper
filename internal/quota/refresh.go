@@ -518,12 +518,24 @@ func (s *Service) markRefreshTaskRunning(task *RefreshTaskRecord) (string, Refre
 }
 
 func (s *Service) markRefreshTaskCompleted(task *RefreshTaskRecord, response CheckResponse, upstreamResponses []UpstreamResponse) {
+	s.estimateMu.Lock()
+	defer s.estimateMu.Unlock()
+	response = withWindowUsageEstimates(response)
+	published := false
 	// now 同时作为完成时间和成功缓存写入时间。
 	now := timeutil.NormalizeStorageTime(time.Now())
+	for i := range response.Quota {
+		response.Quota[i].ObservedAt = &now
+	}
 	// refreshTasks 是共享 map，写 completed 状态前必须加锁。
 	s.refreshMu.Lock()
 	// 函数退出时释放锁，保证 quota 缓存和状态一起写入。
-	defer s.refreshMu.Unlock()
+	defer func() {
+		s.refreshMu.Unlock()
+		if published {
+			s.rememberCapacityEstimates(task.AuthIndex, task.Type, response, now)
+		}
+	}()
 	// 同锁比较代数和具体任务后发布，清理前的响应不能复活旧缓存或覆盖新任务。
 	if !s.refreshTaskCurrentLocked(task) || task.Status != RefreshTaskStatusRunning {
 		// 不再创建新记录，避免后台结果复活已清理任务。
@@ -537,6 +549,7 @@ func (s *Service) markRefreshTaskCompleted(task *RefreshTaskRecord, response Che
 	task.Quota = &response
 	// raw 响应与当前 quota 同生命周期；同 auth_index 的下一次刷新会整体覆盖任务记录。
 	task.UpstreamResponses = cloneUpstreamResponses(upstreamResponses)
+	published = true
 }
 
 func (s *Service) markQueuedRefreshTasksFailed(tasks []*RefreshTaskRecord, err error) {

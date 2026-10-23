@@ -845,10 +845,25 @@ func (s *Service) shouldProcessUsageHeaderQuotaSnapshot(authIndex string, identi
 
 // mergeUsageHeaderQuotaCache 将代数复验和缓存发布合并在 refreshMu 下，阻止查询中的旧结果晚到回写。
 func (s *Service) mergeUsageHeaderQuotaCache(authIndex string, response CheckResponse, observedAt time.Time, identity entities.UsageIdentity, generation uint64) bool {
+	s.estimateMu.Lock()
+	defer s.estimateMu.Unlock()
+	response = withWindowUsageEstimates(response)
+	for i := range response.Quota {
+		response.Quota[i].ObservedAt = &observedAt
+	}
+	estimateResponse := response
+	published := false
 	// 写 refreshTasks 前加锁，和主动刷新任务状态切换保持同一同步边界。
 	s.refreshMu.Lock()
 	// 函数退出时释放锁。
-	defer s.refreshMu.Unlock()
+	defer func() {
+		s.refreshMu.Unlock()
+		if published {
+			// Persist only incoming rows; untouched cached windows keep their own plan/time.
+			estimateResponse.Subscription = response.Subscription
+			s.rememberCapacityEstimates(authIndex, identity.Type, estimateResponse, observedAt)
+		}
+	}()
 	if generation != s.cacheGeneration {
 		return false
 	}
@@ -888,6 +903,7 @@ func (s *Service) mergeUsageHeaderQuotaCache(authIndex string, response CheckRes
 		UpstreamResponses: upstreamResponses,
 	}
 	// 返回 true 表示本次 header snapshot 已经成功写入 cache。
+	published = true
 	return true
 }
 
@@ -978,6 +994,10 @@ func mergeUsageHeaderQuotaRows(existing []QuotaRow, header []QuotaRow) []QuotaRo
 func mergeUsageHeaderQuotaRow(existing QuotaRow, header QuotaRow) QuotaRow {
 	// 以旧 row 为基底，保留 header 没有携带的人工/官方完整字段。
 	merged := existing
+	// Estimates and observation time belong to this exact progress snapshot.
+	merged.WindowUsageEstimateTokens = header.WindowUsageEstimateTokens
+	merged.WindowUsageEstimateCost = header.WindowUsageEstimateCost
+	merged.ObservedAt = header.ObservedAt
 	// header key 非空时覆盖 key，正常情况下与 existing key 相同。
 	if strings.TrimSpace(header.Key) != "" {
 		merged.Key = header.Key

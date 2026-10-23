@@ -20,6 +20,37 @@ const quotaResetErrorFailed = "quota_reset_failed"
 const quotaResetCreditsErrorFailed = "quota_reset_credits_failed"
 
 func registerQuotaRoutes(router gin.IRoutes, provider QuotaProvider) {
+	// Optional capability keeps older embedders of QuotaProvider compatible.
+	type summaryProvider interface {
+		GetQuotaSummary(context.Context) (quota.SummaryResponse, error)
+		RefreshQuotaSummary(context.Context) (quota.RefreshResponse, error)
+	}
+	router.GET("/quota/summary", func(c *gin.Context) {
+		summary, ok := provider.(summaryProvider)
+		if !ok {
+			writeInternalError(c, "quota summary provider is not configured", nil)
+			return
+		}
+		response, err := summary.GetQuotaSummary(c.Request.Context())
+		if err != nil {
+			writeInternalError(c, "quota summary lookup failed", err)
+			return
+		}
+		c.JSON(http.StatusOK, response)
+	})
+	router.POST("/quota/summary/refresh", func(c *gin.Context) {
+		summary, ok := provider.(summaryProvider)
+		if !ok {
+			writeInternalError(c, "quota summary provider is not configured", nil)
+			return
+		}
+		response, err := summary.RefreshQuotaSummary(c.Request.Context())
+		if err != nil {
+			writeInternalError(c, "quota summary refresh failed", err)
+			return
+		}
+		c.JSON(http.StatusOK, response)
+	})
 	router.DELETE("/quota/history/:auth_index/cycles/:cycle_id", func(c *gin.Context) {
 		if provider == nil {
 			writeInternalError(c, "quota provider is not configured", nil)

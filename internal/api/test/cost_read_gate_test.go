@@ -55,6 +55,8 @@ func TestCostReadRoutesRespectAuthAndExactFeeScope(t *testing.T) {
 		{"quota cache", http.MethodPost, "/quota/cache", admin},
 		{"quota refresh", http.MethodPost, "/quota/refresh", admin},
 		{"quota refresh result", http.MethodGet, "/quota/refresh/auth-1", admin},
+		{"quota summary", http.MethodGet, "/quota/summary", admin},
+		{"quota summary refresh", http.MethodPost, "/quota/summary/refresh", admin},
 		{"viewer overview", http.MethodGet, "/key-overview", viewer},
 		{"viewer comparisons", http.MethodGet, "/key-overview/comparisons", viewer},
 		{"viewer realtime", http.MethodGet, "/key-overview/realtime", viewer},
@@ -103,6 +105,14 @@ func TestCostReadRoutesRespectAuthAndExactFeeScope(t *testing.T) {
 	}
 	if response := serveCostReadGateRequest(router, http.MethodGet, basePath+"/api/v1/usage/overview", viewer); response.Code != http.StatusForbidden {
 		t.Fatalf("viewer reached admin cost gate: %d %s", response.Code, response.Body.String())
+	}
+	for _, methodPath := range []struct{ method, path string }{{http.MethodGet, "/quota/summary"}, {http.MethodPost, "/quota/summary/refresh"}} {
+		if response := serveCostReadGateRequest(router, methodPath.method, basePath+"/api/v1"+methodPath.path, nil); response.Code != http.StatusUnauthorized {
+			t.Fatal("summary bypassed authentication", response.Code)
+		}
+		if response := serveCostReadGateRequest(router, methodPath.method, basePath+"/api/v1"+methodPath.path, viewer); response.Code != http.StatusForbidden {
+			t.Fatal("viewer reached admin summary", response.Code)
+		}
 	}
 	if response := serveCostReadGateRequest(router, http.MethodGet, basePath+"/api/v1/key-overview", admin); response.Code != http.StatusForbidden {
 		t.Fatalf("admin reached viewer cost gate: %d %s", response.Code, response.Body.String())

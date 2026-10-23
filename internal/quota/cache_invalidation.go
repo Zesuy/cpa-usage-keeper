@@ -1,13 +1,20 @@
 package quota
 
-import "time"
+import (
+	"time"
+
+	"cpa-usage-keeper/internal/entities"
+	"github.com/sirupsen/logrus"
+)
 
 // InvalidateStoredCostCache 在费用重算结束后清除整份额度结果，并让旧异步工作失去发布资格。
-// 仅改变内存额度状态；历史 periods/segments、上游刷新时间和 Header history 均不受影响。
+// 同时清除旧费用口径的容量估值；历史 periods/segments 不受影响。
 func (s *Service) InvalidateStoredCostCache() {
 	if s == nil {
 		return
 	}
+	s.estimateMu.Lock()
+	defer s.estimateMu.Unlock()
 	s.refreshMu.Lock()
 	s.cacheGeneration++
 	s.refreshTasks = make(map[string]*RefreshTaskRecord)
@@ -20,6 +27,13 @@ func (s *Service) InvalidateStoredCostCache() {
 	s.usageHeaderPending = make(map[string]*UsageHeaderSnapshot, usageHeaderPendingIdentityLimit)
 	s.usageHeaderMu.Unlock()
 	s.refreshMu.Unlock()
+	if s.db != nil && s.db.Migrator().HasTable(&entities.QuotaCapacityEstimate{}) {
+		err := s.db.Where("1 = 1").Delete(&entities.QuotaCapacityEstimate{}).Error
+		s.capacityHistoryInvalid = err != nil
+		if err != nil {
+			logrus.WithError(err).Error("quota capacity estimates invalidation failed")
+		}
+	}
 }
 
 // quotaCacheGeneration 为异步刷新和 Header 工作固定启动代数；读取必须受 refreshMu 保护。

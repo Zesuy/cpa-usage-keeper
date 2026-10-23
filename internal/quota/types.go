@@ -2,6 +2,7 @@ package quota
 
 import (
 	"context"
+	"time"
 
 	"cpa-usage-keeper/internal/cpa/dto/apicall"
 	"cpa-usage-keeper/internal/entities"
@@ -64,26 +65,30 @@ type QuotaUsageBreakdown struct {
 }
 
 type QuotaRow struct {
-	UsageBreakdown    []QuotaUsageBreakdown `json:"usageBreakdown,omitempty"`
-	Key               string                `json:"key"`
-	Label             string                `json:"label,omitempty"`
-	Scope             string                `json:"scope,omitempty"`
-	Metric            string                `json:"metric,omitempty"`
-	GroupKey          string                `json:"groupKey,omitempty"`
-	GroupLabel        string                `json:"groupLabel,omitempty"`
-	GroupDescription  string                `json:"groupDescription,omitempty"`
-	Used              *float64              `json:"used,omitempty"`
-	Limit             *float64              `json:"limit,omitempty"`
-	Remaining         *float64              `json:"remaining,omitempty"`
-	UsedPercent       *float64              `json:"usedPercent,omitempty"`
-	RemainingFraction *float64              `json:"remainingFraction,omitempty"`
-	Allowed           *bool                 `json:"allowed,omitempty"`
-	LimitReached      *bool                 `json:"limitReached,omitempty"`
-	Window            *QuotaWindow          `json:"window,omitempty"`
-	ResetAt           string                `json:"resetAt,omitempty"`
-	ResetAfterSeconds *int64                `json:"resetAfterSeconds,omitempty"`
-	WindowUsageTokens *int64                `json:"window_usage_tokens,omitempty"`
-	WindowUsageCost   *float64              `json:"window_usage_cost,omitempty"`
+	UsageBreakdown            []QuotaUsageBreakdown `json:"usageBreakdown,omitempty"`
+	Key                       string                `json:"key"`
+	Label                     string                `json:"label,omitempty"`
+	Scope                     string                `json:"scope,omitempty"`
+	Metric                    string                `json:"metric,omitempty"`
+	GroupKey                  string                `json:"groupKey,omitempty"`
+	GroupLabel                string                `json:"groupLabel,omitempty"`
+	GroupDescription          string                `json:"groupDescription,omitempty"`
+	Used                      *float64              `json:"used,omitempty"`
+	Limit                     *float64              `json:"limit,omitempty"`
+	Remaining                 *float64              `json:"remaining,omitempty"`
+	UsedPercent               *float64              `json:"usedPercent,omitempty"`
+	RemainingFraction         *float64              `json:"remainingFraction,omitempty"`
+	Allowed                   *bool                 `json:"allowed,omitempty"`
+	LimitReached              *bool                 `json:"limitReached,omitempty"`
+	Window                    *QuotaWindow          `json:"window,omitempty"`
+	ResetAt                   string                `json:"resetAt,omitempty"`
+	ResetAfterSeconds         *int64                `json:"resetAfterSeconds,omitempty"`
+	WindowUsageTokens         *int64                `json:"window_usage_tokens,omitempty"`
+	WindowUsageCost           *float64              `json:"window_usage_cost,omitempty"`
+	WindowUsageEstimateTokens *float64              `json:"window_usage_estimate_tokens,omitempty"`
+	WindowUsageEstimateCost   *float64              `json:"window_usage_estimate_cost,omitempty"`
+	// ObservedAt anchors per-window freshness when Header updates merge partial responses.
+	ObservedAt *time.Time `json:"observed_at,omitempty"`
 }
 
 type AntigravityQuotaBucket struct {
