@@ -539,7 +539,7 @@ export interface QuotaSummaryResponse {
   generated_at: string
   eligible: number
   pending: number
-  groups: { provider: string; pool: string; label: string; quota: UsageQuotaRow[] }[]
+  groups: { provider: string; pool: string; label: string; quota: UsageQuotaRow[]; stats?: UsageIdentityPeriodStats }[]
 }
 
 export interface UsageQuotaCheckResponse {

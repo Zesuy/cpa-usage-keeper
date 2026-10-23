@@ -5,12 +5,28 @@ import { Button } from '@/components/ui/Button'
 import { ProviderBrandIcon } from '@/components/ProviderBrandIcon'
 import { IconInfo } from '@/components/ui/icons'
 import { ApiError, fetchQuotaSummary, refreshQuotaSummary } from '@/lib/api'
-import type { QuotaSummaryResponse, UsageQuotaRow } from '@/lib/types'
+import type { QuotaSummaryResponse, UsageIdentityPeriodStats, UsageQuotaRow } from '@/lib/types'
+import { calculateCacheReadRate } from '@/utils/usage'
 import { useAntigravityQuotaDisplayStore } from '@/stores/useAntigravityQuotaDisplayStore'
-import { formatQuotaResetLabel, QuotaBar, QuotaUsageModeSwitch } from './CredentialsSection'
+import {
+  formatQuotaResetLabel,
+  QuotaBar,
+  QuotaUsageModeSwitch,
+} from './CredentialsSection'
+import {
+  CredentialRowShell,
+  CredentialTableHeader,
+  MetricPill,
+  RequestMetric,
+  TonePercent,
+  cacheReadRateTone,
+  formatCredentialNumber,
+  successRateTone,
+} from './CredentialSectionShell'
 import { antigravityQuotaGroup } from './antigravityQuotaGroups'
 import { toDisplayQuota } from './credentialViewModels'
 import styles from './QuotaSummaryCard.module.scss'
+import quotaStyles from './CredentialSections.module.scss'
 
 type QuotaSummaryGroup = QuotaSummaryResponse['groups'][number]
 
@@ -79,6 +95,7 @@ export function QuotaSummaryCard({ timeZone, onAuthRequired }: { timeZone?: stri
 
   return (
     <Card
+      variant="flush"
       className={styles.card}
       title={t('usage_stats.quota_summary_title')}
       subtitle={t('usage_stats.quota_summary_description')}
@@ -92,6 +109,17 @@ export function QuotaSummaryCard({ timeZone, onAuthRequired }: { timeZone?: stri
       {error && <p role="alert" className={styles.error}>{t(error)}</p>}
       {loading && <p className={styles.emptyNote}>{t('common.loading')}</p>}
       {!loading && !error && visibleGroups.length === 0 && <p className={styles.emptyNote}>{t(data?.eligible ? 'usage_stats.antigravity_quota_display_hidden' : 'usage_stats.quota_summary_empty')}</p>}
+      {!loading && visibleGroups.length > 0 && (
+        <CredentialTableHeader
+          rowClassName={quotaStyles.credentialsRow}
+          nameLabel={t('usage_stats.credentials_column_name')}
+          totalRequestsLabel={t('usage_stats.total_requests')}
+          successRateLabel={t('usage_stats.success_rate')}
+          totalTokensLabel={t('usage_stats.total_tokens')}
+          cacheReadRateLabel={t('usage_stats.cache_rate')}
+          sideLabel={t('usage_stats.credentials_column_quota')}
+        />
+      )}
       <div className={styles.rows}>
         {visibleGroups.map((group) => (
           <QuotaSummaryGroupRow
@@ -115,28 +143,61 @@ function QuotaSummaryGroupRow({
   mode: 'current' | 'estimated'
   timeZone?: string
 }) {
+  const { t } = useTranslation()
+  const metricsTitle = t('usage_stats.quota_summary_metrics_scope')
+  const stats = group.stats
+  const totalRequests = stats?.total_requests ?? 0
+  const successCount = stats?.success_count ?? 0
+  const failureCount = stats?.failure_count ?? 0
+  const successRate = totalRequests > 0 ? (successCount / totalRequests) * 100 : null
+  const totalTokens = stats?.total_tokens ?? 0
+  const cacheReadRate = stats
+    ? calculateCacheReadRate({ inputTokens: stats.input_tokens, cacheReadTokens: stats.cache_read_tokens })
+    : null
+
+  const metrics = stats ? (
+    <>
+      <MetricPill value={<RequestMetric total={totalRequests} success={successCount} failure={failureCount} />} />
+      <MetricPill value={<TonePercent value={successRate} tone={successRateTone(successRate)} />} />
+      <MetricPill value={formatCredentialNumber(totalTokens)} />
+      <MetricPill value={<TonePercent value={cacheReadRate} tone={cacheReadRateTone(cacheReadRate)} />} />
+    </>
+  ) : (
+    <>
+      <MetricPill value="—" />
+      <MetricPill value="—" />
+      <MetricPill value="—" />
+      <MetricPill value="—" />
+    </>
+  )
+
+  const side = (
+    <div className={quotaStyles.credentialQuotaGroupBars}>
+      {group.quota.map((row) => (
+        <QuotaSummaryWindowBar
+          key={row.key}
+          row={row}
+          mode={mode}
+          timeZone={timeZone}
+        />
+      ))}
+    </div>
+  )
+
   return (
-    <article className={styles.summaryRow}>
-      <div className={styles.identityBlock}>
-        <div className={styles.identityIconSlot}>
+    <CredentialRowShell
+      icon={(
+        <div className={styles.groupIconSlot}>
           <ProviderBrandIcon providerType={group.provider} size={20} ariaLabel={group.label} />
         </div>
-        <div className={styles.identityContent}>
-          <span className={styles.groupTitle} title={group.label}>{group.label}</span>
-        </div>
-      </div>
-
-      <div className={styles.quotaSide}>
-        {group.quota.map((row) => (
-          <QuotaSummaryWindowBar
-            key={row.key}
-            row={row}
-            mode={mode}
-            timeZone={timeZone}
-          />
-        ))}
-      </div>
-    </article>
+      )}
+      title={<span className={styles.groupTitle} title={group.label}>{group.label}</span>}
+      badges={null}
+      metrics={metrics}
+      metricsTitle={metricsTitle}
+      side={side}
+      rowClassName={quotaStyles.credentialsRow}
+    />
   )
 }
 

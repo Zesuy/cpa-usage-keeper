@@ -27,6 +27,14 @@ const data: QuotaSummaryResponse = {
     provider: 'codex',
     pool: 'codex',
     label: 'Codex / GPT',
+    stats: {
+      total_requests: 98,
+      success_count: 52,
+      failure_count: 46,
+      input_tokens: 980,
+      cache_read_tokens: 160,
+      total_tokens: 1120,
+    },
     quota: [
       {
         key: 'summary.codex.18000', scope: 'window', label: '5h', window: { seconds: 18000 }, remainingFraction: .8,
@@ -82,6 +90,40 @@ describe('QuotaSummaryCard', () => {
     expect(container.querySelectorAll('details').length).toBe(2)
     // Aggregates deliberately have no fictitious common reset countdown.
     expect(container.textContent).not.toContain('NaN')
+  })
+
+  it('renders credential metrics identically to credential rows and handles missing stats gracefully', async () => {
+    await render()
+    // 渲染表头
+    expect(container.textContent).toContain('usage_stats.total_requests')
+    expect(container.textContent).toContain('usage_stats.success_rate')
+    expect(container.textContent).toContain('usage_stats.total_tokens')
+    expect(container.textContent).toContain('usage_stats.cache_rate')
+
+    // 验证指标数值与计算
+    // total_requests: 98, success: 52, failure: 46
+    expect(container.textContent).toContain('98')
+    expect(container.textContent).toContain('52')
+    expect(container.textContent).toContain('46')
+    // success_rate: 52/98 = 53.06%
+    expect(container.textContent).toContain('53.06%')
+    // total_tokens: 1120 -> 1.12K
+    expect(container.textContent).toContain('1.12K')
+    // cache_read_rate: 160/980 = 16.33%
+    expect(container.textContent).toContain('16.33%')
+    // 范围说明 tooltip
+    expect(container.querySelector('[title="usage_stats.quota_summary_metrics_scope"]')).not.toBeNull()
+
+    // 兼容缺少 stats 字段的旧结构
+    await act(async () => root.unmount())
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+    const withoutStats = structuredClone(data)
+    delete withoutStats.groups[0].stats
+    fetchSummary.mockResolvedValue(withoutStats)
+    await render()
+    expect(container.textContent).toContain('—')
   })
 
   it('keeps independent coverage statistics and sources for each window bar', async () => {
