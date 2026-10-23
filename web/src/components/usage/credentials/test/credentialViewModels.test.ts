@@ -294,6 +294,8 @@ describe('credentialViewModels', () => {
       resetAt: '2026-05-09T12:00:00Z',
       window_usage_tokens: 1_000_000,
       window_usage_cost: 2.8,
+      window_usage_estimate_tokens: 1_000_000 / .28,
+      window_usage_estimate_cost: 10,
     }
     const quotas = new Map<string, UsageQuotaCheckResponse>([
       ['antigravity-auth', quotaResponse('antigravity-auth', [groupedQuota])],
@@ -403,8 +405,8 @@ describe('credentialViewModels', () => {
   it('estimates quota window usage only from positive current usage and a partial used percent', () => {
     const quotas = new Map<string, UsageQuotaCheckResponse>([
       ['auth-1', quotaResponse('auth-1', [
-        { key: 'rate_limit.primary_window', label: '5h', usedPercent: 25, window_usage_tokens: 1_000_000, window_usage_cost: 2.5 },
-        { key: 'rate_limit.secondary_window', label: 'Weekly', remainingFraction: 0.75, window_usage_tokens: 500_000, window_usage_cost: 1 },
+        { key: 'rate_limit.primary_window', label: '5h', usedPercent: 25, window_usage_tokens: 1_000_000, window_usage_cost: 2.5, window_usage_estimate_tokens: 4_000_000, window_usage_estimate_cost: 10 },
+        { key: 'rate_limit.secondary_window', label: 'Weekly', remainingFraction: 0.75, window_usage_tokens: 500_000, window_usage_cost: 1, window_usage_estimate_tokens: 2_000_000, window_usage_estimate_cost: 4 },
       ])],
     ])
 

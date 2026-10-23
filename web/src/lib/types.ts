@@ -514,6 +514,32 @@ export interface UsageQuotaRow {
   resetAfterSeconds?: number
   window_usage_tokens?: number
   window_usage_cost?: number
+  window_usage_estimate_tokens?: number
+  window_usage_estimate_cost?: number
+  coverage?: QuotaSummaryCoverage
+}
+
+export interface QuotaSummaryCoverage {
+  eligible: number
+  current: number
+  direct: number
+  historical: number
+  peer: number
+  unknown: number
+  missing: number
+  stale: number
+  failed: number
+  pending: number
+  unsupported: number
+  samples: number
+  oldest_estimate_at?: string
+}
+
+export interface QuotaSummaryResponse {
+  generated_at: string
+  eligible: number
+  pending: number
+  groups: { provider: string; pool: string; label: string; quota: UsageQuotaRow[] }[]
 }
 
 export interface UsageQuotaCheckResponse {

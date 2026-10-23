@@ -1,0 +1,133 @@
+// @vitest-environment happy-dom
+
+import { act } from 'react'
+import { createRoot, type Root } from 'react-dom/client'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { ApiError } from '@/lib/api'
+import type { QuotaSummaryResponse } from '@/lib/types'
+import { defaultAntigravityQuotaDisplayPreferences, useAntigravityQuotaDisplayStore } from '@/stores/useAntigravityQuotaDisplayStore'
+import { QuotaSummaryCard } from '../QuotaSummaryCard'
+
+globalThis.IS_REACT_ACT_ENVIRONMENT = true
+const fetchSummary = vi.fn()
+const refreshSummary = vi.fn()
+vi.mock('@/lib/api', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@/lib/api')>(),
+  fetchQuotaSummary: (...args: unknown[]) => fetchSummary(...args),
+  refreshQuotaSummary: () => refreshSummary(),
+}))
+vi.mock('react-i18next', () => ({
+  initReactI18next: { type: '3rdParty', init: () => undefined },
+  useTranslation: () => ({ t: (key: string, params?: Record<string, unknown>) => params ? `${key}:${JSON.stringify(params)}` : key }),
+}))
+
+const data: QuotaSummaryResponse = {
+  generated_at: '2026-10-23T07:00:00Z', eligible: 3, pending: 0,
+  groups: [{ provider: 'codex', pool: 'codex', label: 'Codex / GPT', quota: [{
+    key: 'summary.codex.18000', scope: 'window', label: '5h', window: { seconds: 18000 }, remainingFraction: .8,
+    window_usage_tokens: 1_000_000, window_usage_cost: 2,
+    window_usage_estimate_tokens: 5_000_000, window_usage_estimate_cost: 10,
+    coverage: { eligible: 3, current: 3, direct: 1, historical: 1, peer: 1, unknown: 0, missing: 0, stale: 0, failed: 0, pending: 0, unsupported: 0, samples: 2 },
+  }] }],
+}
+
+describe('QuotaSummaryCard', () => {
+  let container: HTMLDivElement
+  let root: Root
+  beforeEach(() => {
+    vi.clearAllMocks()
+    fetchSummary.mockResolvedValue(structuredClone(data))
+    refreshSummary.mockResolvedValue({ tasks: [], rejected: [], accepted: 0, skipped: 0, limit: 0 })
+    useAntigravityQuotaDisplayStore.setState({ groups: defaultAntigravityQuotaDisplayPreferences() })
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+  })
+  afterEach(async () => {
+    await act(async () => root.unmount())
+    container.remove()
+    vi.useRealTimers()
+  })
+  const render = async (onAuthRequired?: () => void) => {
+    await act(async () => root.render(<QuotaSummaryCard timeZone="Asia/Shanghai" onAuthRequired={onAuthRequired} />))
+  }
+  const button = (text: string) => [...container.querySelectorAll<HTMLButtonElement>('button')].find((item) => item.textContent?.includes(text))!
+
+  it('reuses current/estimated controls and quota bars without refreshing upstream on mount', async () => {
+    await render()
+    expect(container.textContent).toContain('Codex / GPT')
+    expect(container.textContent).toContain('80%')
+    expect(container.textContent).toContain('1.00M')
+    expect(container.textContent).toContain('$2.00')
+    expect(container.textContent).not.toContain('5.00M')
+    expect(refreshSummary).not.toHaveBeenCalled()
+    await act(async () => button('credentials_quota_usage_mode_estimated').click())
+    expect(container.textContent).toContain('5.00M')
+    expect(container.textContent).toContain('$10.00')
+    expect(container.textContent).toContain('80%')
+    expect(container.textContent).toContain('quota_summary_filled')
+    expect(container.querySelector('details')).not.toBeNull()
+    // Aggregates deliberately have no fictitious common reset countdown.
+    expect(container.textContent).not.toContain('NaN')
+  })
+
+  it('does not fall back to actual spend when aggregate capacity is unknown', async () => {
+    const unknown = structuredClone(data)
+    delete unknown.groups[0].quota[0].window_usage_estimate_tokens
+    delete unknown.groups[0].quota[0].window_usage_estimate_cost
+    fetchSummary.mockResolvedValue(unknown)
+    await render()
+    await act(async () => button('credentials_quota_usage_mode_estimated').click())
+    expect(container.textContent).not.toContain('$2.00')
+    expect(container.textContent).toContain('quota_summary_unknown')
+  })
+
+  it('refreshes the complete summary scope once and shows progress', async () => {
+    await render()
+    fetchSummary.mockResolvedValue({ ...data, pending: 3 })
+    await act(async () => button('quota_summary_refresh_all').click())
+    expect(refreshSummary).toHaveBeenCalledTimes(1)
+    expect(button('quota_summary_pending').disabled).toBe(true)
+    await act(async () => button('quota_summary_pending').click())
+    expect(refreshSummary).toHaveBeenCalledTimes(1)
+  })
+
+  it('polls pending tasks every five seconds and switches to a minute when idle', async () => {
+    vi.useFakeTimers()
+    fetchSummary.mockResolvedValue({ ...data, pending: 2 })
+    await render()
+    const initialCalls = fetchSummary.mock.calls.length
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000) })
+    expect(fetchSummary.mock.calls.length).toBe(initialCalls + 1)
+    fetchSummary.mockResolvedValue(data)
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000) })
+    const idleCalls = fetchSummary.mock.calls.length
+    await act(async () => { await vi.advanceTimersByTimeAsync(59_000) })
+    expect(fetchSummary.mock.calls.length).toBe(idleCalls)
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_000) })
+    expect(fetchSummary.mock.calls.length).toBe(idleCalls + 1)
+  })
+
+  it('applies existing Antigravity visibility choices without changing API data', async () => {
+    const ag = structuredClone(data)
+    ag.groups = [{ ...ag.groups[0], provider: 'antigravity', pool: 'antigravity-gemini-models', label: 'Gemini Models' }]
+    fetchSummary.mockResolvedValue(ag)
+    await render()
+    expect(container.textContent).toContain('Gemini Models')
+    await act(async () => useAntigravityQuotaDisplayStore.getState().setGroupVisible('gemini', false))
+    expect(container.textContent).not.toContain('Gemini Models')
+    expect(container.textContent).toContain('antigravity_quota_display_hidden')
+    expect(ag.groups).toHaveLength(1)
+  })
+
+  it('shows auth errors and aborts outstanding reads on unmount', async () => {
+    fetchSummary.mockRejectedValue(new ApiError('expired', 401))
+    const onAuthRequired = vi.fn()
+    await render(onAuthRequired)
+    expect(onAuthRequired).toHaveBeenCalledOnce()
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain('expired')
+    const signal = fetchSummary.mock.calls[0][0] as AbortSignal
+    await act(async () => root.render(null))
+    expect(signal.aborted).toBe(true)
+  })
+})

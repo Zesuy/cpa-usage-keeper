@@ -1653,7 +1653,7 @@ function formatInspectionDate(value: string | undefined): string {
   return formatInspectionCompletedAt(value)
 }
 
-function QuotaUsageModeSwitch({ label, mode, onChange }: { label: string; mode: QuotaUsageMode; onChange: (mode: QuotaUsageMode) => void }) {
+export function QuotaUsageModeSwitch({ label, mode, onChange }: { label: string; mode: QuotaUsageMode; onChange: (mode: QuotaUsageMode) => void }) {
   const { t } = useTranslation()
 
   return (
@@ -2073,7 +2073,7 @@ export function formatQuotaBillingUsageAriaLabel(t: Translate, billingUsage: Non
   })
 }
 
-function QuotaBar({ quota, quotaUsageMode, timeZone, showGroupMetadata = true, tooltipAlignRight = false }: { quota: DisplayQuota; quotaUsageMode: QuotaUsageMode; timeZone?: string; showGroupMetadata?: boolean; tooltipAlignRight?: boolean }) {
+export function QuotaBar({ quota, quotaUsageMode, timeZone, showGroupMetadata = true, tooltipAlignRight = false }: { quota: DisplayQuota; quotaUsageMode: QuotaUsageMode; timeZone?: string; showGroupMetadata?: boolean; tooltipAlignRight?: boolean }) {
   const { t } = useTranslation()
   // 条宽使用剩余额度百分比，颜色跟随剩余风险状态从绿到黄到红。
   const percent = quota.barPercent ?? 0
@@ -2098,7 +2098,7 @@ function QuotaBar({ quota, quotaUsageMode, timeZone, showGroupMetadata = true, t
           </span>
         )}
       </div>
-      {!(quota.usageBreakdown?.length && quota.barPercent === null) && <div className={styles.credentialQuotaTrack}>
+      {!((quota.coverage || quota.usageBreakdown?.length) && quota.barPercent === null) && <div className={styles.credentialQuotaTrack}>
         <span className={`${styles.credentialQuotaFill} ${credentialToneClassName('credentialQuotaFill', quota.status)}`.trim()} style={{ width }} />
       </div>}
       <div className={styles.credentialQuotaMeta}>
@@ -2209,8 +2209,8 @@ function formatQuotaBillingUsageText(billingUsage: NonNullable<DisplayQuota['bil
 }
 
 function quotaWindowUsageForMode(quota: DisplayQuota, mode: QuotaUsageMode): DisplayQuota['windowUsage'] {
-  if (mode === 'estimated' && quota.windowUsageEstimate) {
-    return quota.windowUsageEstimate
+  if (mode === 'estimated') {
+    return quota.windowUsageEstimate ?? (quota.coverage ? undefined : quota.windowUsage)
   }
   return quota.windowUsage
 }

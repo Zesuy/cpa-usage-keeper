@@ -656,6 +656,18 @@ export async function fetchUsageIdentities(signal?: AbortSignal): Promise<UsageI
   return response.json()
 }
 
+export async function fetchQuotaSummary(signal?: AbortSignal): Promise<import('./types').QuotaSummaryResponse> {
+  const response = await apiFetch(apiPath('/quota/summary'), { signal, cache: 'no-store' })
+  if (!response.ok) await parseApiError(response, `Failed to load quota summary: ${response.status}`)
+  return response.json()
+}
+
+export async function refreshQuotaSummary(): Promise<UsageQuotaRefreshResponse> {
+  const response = await apiFetch(apiPath('/quota/summary/refresh'), { method: 'POST' })
+  if (!response.ok) await parseApiError(response, `Failed to refresh quota summary: ${response.status}`)
+  return response.json()
+}
+
 export async function fetchUsageIdentity(id: string, signal?: AbortSignal): Promise<UsageIdentity> {
   const response = await apiFetch(apiPath(`/usage/identities/${encodeURIComponent(id)}`), { signal })
   if (!response.ok) {

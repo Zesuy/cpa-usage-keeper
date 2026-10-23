@@ -18,6 +18,7 @@ import { updateCredentialDetailStats } from '@/components/usage/credentials/cred
 import { CREDENTIAL_PAGES_REFRESH_INTERVAL_MS } from '@/components/usage/credentials/useCredentialPages';
 import { PricingSettings, type PricingSettingsHandle } from '@/components/usage/pricing/PricingSettings';
 import { AntigravityQuotaDisplaySettingsCard } from '@/components/usage/AntigravityQuotaDisplaySettingsCard';
+import { QuotaSummaryCard } from '@/components/usage/credentials/QuotaSummaryCard';
 import { buildCredentialProviderSearch } from '@/components/usage/credentials/credentialProviderFilters';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
@@ -2304,6 +2305,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
 
             {credentialSectionVisibility.enabled && (
               <>
+                {credentialSectionVisibility.showCredentials && <QuotaSummaryCard timeZone={credentialTimeZone} onAuthRequired={onAuthRequired} />}
                 {credentialsData.error && <div className={styles.errorBox}>{credentialsData.error}</div>}
                 <CredentialProviderFilterBar
                   scope={activeCredentialProviderFilterScope}
