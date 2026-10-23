@@ -23,12 +23,25 @@ vi.mock('react-i18next', () => ({
 
 const data: QuotaSummaryResponse = {
   generated_at: '2026-10-23T07:00:00Z', eligible: 3, pending: 0,
-  groups: [{ provider: 'codex', pool: 'codex', label: 'Codex / GPT', quota: [{
-    key: 'summary.codex.18000', scope: 'window', label: '5h', window: { seconds: 18000 }, remainingFraction: .8,
-    window_usage_tokens: 1_000_000, window_usage_cost: 2,
-    window_usage_estimate_tokens: 5_000_000, window_usage_estimate_cost: 10,
-    coverage: { eligible: 3, current: 3, direct: 1, historical: 1, peer: 1, unknown: 0, missing: 0, stale: 0, failed: 0, pending: 0, unsupported: 0, samples: 2 },
-  }] }],
+  groups: [{
+    provider: 'codex',
+    pool: 'codex',
+    label: 'Codex / GPT',
+    quota: [
+      {
+        key: 'summary.codex.18000', scope: 'window', label: '5h', window: { seconds: 18000 }, remainingFraction: .8,
+        window_usage_tokens: 1_000_000, window_usage_cost: 2,
+        window_usage_estimate_tokens: 5_000_000, window_usage_estimate_cost: 10,
+        coverage: { eligible: 3, current: 3, direct: 1, historical: 1, peer: 1, unknown: 0, missing: 0, stale: 0, failed: 0, pending: 0, unsupported: 0, samples: 2, oldest_estimate_at: '2026-10-22T08:00:00Z' },
+      },
+      {
+        key: 'summary.codex.604800', scope: 'window', label: 'Weekly', window: { seconds: 604800 }, remainingFraction: .5,
+        window_usage_tokens: 4_000_000, window_usage_cost: 8,
+        window_usage_estimate_tokens: 12_000_000, window_usage_estimate_cost: 24,
+        coverage: { eligible: 3, current: 1, direct: 1, historical: 0, peer: 0, unknown: 2, missing: 0, stale: 0, failed: 0, pending: 0, unsupported: 0, samples: 1, oldest_estimate_at: '2026-10-20T10:00:00Z' },
+      },
+    ],
+  }],
 }
 
 describe('QuotaSummaryCard', () => {
@@ -66,9 +79,23 @@ describe('QuotaSummaryCard', () => {
     expect(container.textContent).toContain('$10.00')
     expect(container.textContent).toContain('80%')
     expect(container.textContent).toContain('quota_summary_filled')
-    expect(container.querySelector('details')).not.toBeNull()
+    expect(container.querySelectorAll('details').length).toBe(2)
     // Aggregates deliberately have no fictitious common reset countdown.
     expect(container.textContent).not.toContain('NaN')
+  })
+
+  it('keeps independent coverage statistics and sources for each window bar', async () => {
+    await render()
+    // 5h 覆盖 3/3，Weekly 覆盖 1/3
+    expect(container.textContent).toContain('"covered":3,"total":3')
+    expect(container.textContent).toContain('"covered":1,"total":3')
+
+    await act(async () => button('credentials_quota_usage_mode_estimated').click())
+    // 检查不同窗口的 details 和格式化后的历史日期都独立存在
+    const detailsElements = container.querySelectorAll('details')
+    expect(detailsElements.length).toBe(2)
+    expect(detailsElements[0].textContent).toContain('10/22 16:00')
+    expect(detailsElements[1].textContent).toContain('10/20 18:00')
   })
 
   it('does not fall back to actual spend when aggregate capacity is unknown', async () => {
