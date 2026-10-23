@@ -17,6 +17,7 @@ import { IconRefreshCw } from '@/components/ui/icons';
 import { updateCredentialDetailStats } from '@/components/usage/credentials/credentialViewModels';
 import { CREDENTIAL_PAGES_REFRESH_INTERVAL_MS } from '@/components/usage/credentials/useCredentialPages';
 import { PricingSettings, type PricingSettingsHandle } from '@/components/usage/pricing/PricingSettings';
+import { AntigravityQuotaDisplaySettingsCard } from '@/components/usage/AntigravityQuotaDisplaySettingsCard';
 import { buildCredentialProviderSearch } from '@/components/usage/credentials/credentialProviderFilters';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
@@ -2374,6 +2375,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
 
             {activeTab === 'settings' && (
               <div className={styles.settingsSections}>
+                <AntigravityQuotaDisplaySettingsCard />
                 <SessionSettingsCard
                   sessions={authSessions}
                   loading={authSessionsLoading}

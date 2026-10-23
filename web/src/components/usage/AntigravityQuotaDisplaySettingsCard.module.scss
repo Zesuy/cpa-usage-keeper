@@ -1,0 +1,10 @@
+.card:global(.card) {
+  height: auto;
+  min-height: auto;
+}
+
+.switches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}

@@ -15,6 +15,10 @@ ghcr.io/zesuy/cpa-usage-keeper:sha-<short-sha>
 
 The image retains the original `linux/amd64` target and uses the current upstream Dockerfile. `main` pushes do not publish this image. GitHub package visibility must allow your deployment to pull it.
 
+## Quota display preferences
+
+The main Settings page includes three independent Antigravity quota display switches: Gemini Models, Claude and GPT models, and Gemini 4 Argon. They default to on, support any combination including all off, and apply immediately to both the credential list and detail drawer. Choices are saved in the current browser only; quota fetching, caching, and statistics are unaffected.
+
 ## Upstream synchronization
 
 **Sync upstream main** runs daily at 00:17 UTC (08:17 Asia/Shanghai), and can also be dispatched manually from `main`. GitHub may delay scheduled runs. It merges upstream into `main` without force, preserving the maintenance workflow; conflicts fail the run for manual resolution.

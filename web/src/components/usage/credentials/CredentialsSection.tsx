@@ -22,6 +22,8 @@ import { CredentialRowShell, CredentialSectionShell, CredentialTableHeader, Cred
 import { CredentialPriorityEditor } from './CredentialPriorityEditor'
 import { ProviderBrandIcon, providerBrandIconKey } from '@/components/ProviderBrandIcon'
 import { CredentialStatusToggle } from './CredentialStatusToggle'
+import { useAntigravityQuotaDisplayStore } from '@/stores/useAntigravityQuotaDisplayStore'
+import { antigravityQuotaGroup, ANTIGRAVITY_DISPLAY_GROUP_KEYS } from './antigravityQuotaGroups'
 
 type Translate = (key: string, options?: Record<string, string>) => string
 type InspectionIndicatorTone = 'idle' | 'running' | 'completed'
@@ -71,10 +73,6 @@ const CREDENTIAL_EXPIRY_TOOLTIP_VIEWPORT_PADDING = 8
 const QUOTA_ERROR_MESSAGE_MAX_LENGTH = 96
 const QUOTA_ERROR_PARSE_MAX_DEPTH = 10
 const CREDENTIAL_DISPLAY_MODE_STORAGE_KEY = 'cpa.credentials.displayMode'
-const ANTIGRAVITY_QUOTA_GROUP_KEYS = new Set([
-  'antigravity-gemini-models',
-  'antigravity-claude-and-gpt-models',
-])
 export const INSPECTION_RESULT_PAGE_SIZE_OPTIONS = [10, 20, 50] as const
 const DEFAULT_INSPECTION_RESULT_PAGE_SIZE = INSPECTION_RESULT_PAGE_SIZE_OPTIONS[0]
 const INSPECTION_SELECTABLE_RESULT_STATUSES = new Set<InspectionResultStatusFilter>([
@@ -1743,6 +1741,7 @@ function isCredentialDisplayMode(value: string | null | undefined): value is Cre
 
 export function CredentialQuotaPanel({ row, quotaUsageMode, timeZone }: { row: CredentialRow; quotaUsageMode: QuotaUsageMode; timeZone?: string }) {
   const { t } = useTranslation()
+  const groups = useAntigravityQuotaDisplayStore((state) => state.groups)
 
   // 限额区域按加载、错误、刷新中、无缓存、可展示数据的顺序降级。
   if (row.quotaLoading) {
@@ -1766,11 +1765,19 @@ export function CredentialQuotaPanel({ row, quotaUsageMode, timeZone }: { row: C
     return <div className={styles.credentialQuotaStateSlot}><div className={styles.credentialQuotaState}>{t('usage_stats.credentials_quota_unavailable')}</div></div>
   }
 
+  const visibleQuotas = row.displayQuotas.filter((quota) => {
+    const group = antigravityQuotaGroup(quota)
+    return !group || groups[group]
+  })
+  if (visibleQuotas.length === 0) {
+    return <div className={styles.credentialQuotaStateSlot}><div className={styles.credentialQuotaState}>{t('usage_stats.antigravity_quota_display_hidden')}</div></div>
+  }
+
   return (
     <div className={styles.credentialQuotaPanel}>
       <div className={styles.credentialQuotaBars}>
         {/* 只有 canonical Antigravity 组提升为共享标题；其它 provider 继续沿用原始扁平 QuotaBar。 */}
-        {credentialQuotaPanelItems(row.displayQuotas).map((item) => item.kind === 'group'
+        {credentialQuotaPanelItems(visibleQuotas).map((item) => item.kind === 'group'
           ? <AntigravityQuotaGroup key={item.renderKey} group={item} quotaUsageMode={quotaUsageMode} timeZone={timeZone} />
           : <QuotaBar key={item.quota.key} quota={item.quota} quotaUsageMode={quotaUsageMode} timeZone={timeZone} tooltipAlignRight={item.tooltipAlignRight} />)}
       </div>
@@ -1795,13 +1802,14 @@ function credentialQuotaPanelItems(quotas: DisplayQuota[]): CredentialQuotaPanel
   const items: CredentialQuotaPanelItem[] = []
   let flatColumn = 0
   for (const quota of quotas) {
-    const groupKey = quota.groupKey?.trim() ?? ''
+    const group = antigravityQuotaGroup(quota)
     const groupLabel = quota.groupLabel?.trim() ?? ''
-    if (quota.scope !== 'quota_group' || !ANTIGRAVITY_QUOTA_GROUP_KEYS.has(groupKey) || !groupLabel) {
+    if (!group || !groupLabel) {
       items.push({ kind: 'quota', quota, tooltipAlignRight: flatColumn === 1 })
       flatColumn = (flatColumn + 1) % 2
       continue
     }
+    const groupKey = ANTIGRAVITY_DISPLAY_GROUP_KEYS[group]
     // 分组块横跨两列；只合并相邻同组行，并让后续扁平行重新从左列开始。
     flatColumn = 0
     const previous = items.at(-1)
@@ -1812,7 +1820,7 @@ function credentialQuotaPanelItems(quotas: DisplayQuota[]): CredentialQuotaPanel
       }
       continue
     }
-    const group: AntigravityQuotaGroupItem = {
+    const groupItem: AntigravityQuotaGroupItem = {
       kind: 'group',
       renderKey: `${groupKey}:${quota.key}`,
       groupKey,
@@ -1820,7 +1828,7 @@ function credentialQuotaPanelItems(quotas: DisplayQuota[]): CredentialQuotaPanel
       groupDescription: quota.groupDescription,
       quotas: [quota],
     }
-    items.push(group)
+    items.push(groupItem)
   }
   return items
 }
