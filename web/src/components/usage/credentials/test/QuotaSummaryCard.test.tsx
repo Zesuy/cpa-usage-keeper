@@ -151,7 +151,7 @@ describe('QuotaSummaryCard', () => {
     expect(container.textContent).toContain('quota_summary_unknown')
   })
 
-  it.each([0, 2])('retains cached amounts and observation time with %i pending refreshes', async (pending) => {
+  it.each([0, 2])('shows the next individual reset and retains observation time in source details with %i pending refreshes', async (pending) => {
     const cached = structuredClone(data)
     cached.pending = pending
     for (const row of cached.groups[0].quota) {
@@ -163,17 +163,33 @@ describe('QuotaSummaryCard', () => {
       row.coverage!.pending = pending
       row.coverage!.failed = pending ? 0 : 1
     }
+    cached.groups[0].quota[0].coverage!.next_reset_at = '2026-10-24T18:02:00Z'
+    cached.groups[0].quota[1].coverage!.next_reset_at = '2026-10-29T17:08:00Z'
     fetchSummary.mockResolvedValue(cached)
     await render()
     expect(container.textContent).toContain('80%')
     expect(container.textContent).toContain('1.00M')
     expect(container.textContent).toContain('quota_summary_cached')
-    expect(container.querySelector('time')?.dateTime).toBe('2026-10-23T06:15:00Z')
-    expect(container.querySelector('time')?.textContent).toBe('10/23 14:15')
+    const times = container.querySelectorAll('time')
+    expect([...times].map((item) => item.dateTime)).toEqual(['2026-10-24T18:02:00Z', '2026-10-29T17:08:00Z'])
+    expect([...times].map((item) => item.textContent)).toEqual(['10/25 02:02', '10/30 01:08'])
+    expect(times[0].title).toContain('quota_summary_next_reset')
+    expect(container.querySelector('details')?.textContent).toContain('quota_summary_snapshot_date')
+    expect(container.querySelector('details')?.textContent).toContain('10/23 14:15')
     expect(button(pending ? 'quota_summary_pending' : 'quota_summary_refresh_all').disabled).toBe(Boolean(pending))
     await act(async () => button('credentials_quota_usage_mode_estimated').click())
     expect(container.textContent).toContain('5.00M')
     expect(container.textContent).toContain('quota_summary_cached')
+    expect(container.querySelector('time')?.dateTime).toBe('2026-10-24T18:02:00Z')
+  })
+
+  it('leaves the reset-time position empty when no valid next reset is available', async () => {
+    const noReset = structuredClone(data)
+    noReset.groups[0].quota[0].coverage!.oldest_snapshot_at = '2026-10-23T06:15:00Z'
+    fetchSummary.mockResolvedValue(noReset)
+    await render()
+    expect(container.querySelector('time')).toBeNull()
+    expect(container.querySelector('details')?.textContent).toContain('10/23 14:15')
   })
 
   it.each(['reset', 'pending', 'failed', 'missing', 'missing_usage'] as const)('explains %s without showing obsolete window data', async (state) => {

@@ -524,6 +524,7 @@ export interface UsageQuotaRow {
 export type QuotaSummaryDataState = 'current' | 'cached' | 'unsupported' | 'reset' | 'pending' | 'failed' | 'missing' | 'insufficient_samples' | 'missing_usage'
 
 export interface QuotaSummaryCoverage {
+  next_reset_at?: string
   retained?: number
   expired?: number
   oldest_snapshot_at?: string

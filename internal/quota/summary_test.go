@@ -478,3 +478,66 @@ func TestSummaryMetricsRejectOverflow(t *testing.T) {
 		t.Fatal("token counters wrapped around")
 	}
 }
+
+func TestSummaryNextResetUsesEarliestValidWindowIndependently(t *testing.T) {
+	db := summaryTestDB(t)
+	s := summaryTestService(db)
+	now := time.Now().Truncate(time.Second)
+	fiveResets := []time.Duration{4 * time.Hour, 4 * time.Hour, 237 * time.Minute}
+	weekResets := []time.Duration{151 * time.Hour, 147 * time.Hour, 147 * time.Hour}
+	for i := range fiveResets {
+		id := summaryTestIdentity(t, db, fmt.Sprintf("file-%d", i), "codex", "team")
+		five := summaryTestRow(18000, 25, 100, 1, now)
+		five.ResetAt = now.Add(fiveResets[i]).Format(time.RFC3339)
+		week := summaryTestRow(604800, 50, 1000, 10, now)
+		week.ResetAt = now.Add(weekResets[i]).Format(time.RFC3339)
+		s.rememberSummarySnapshot(id.Identity, id.Type, withWindowUsageEstimates(CheckResponse{Quota: []QuotaRow{five, week}}), now, true)
+	}
+	// Invalid, reset and disabled windows cannot win the next reset time.
+	for _, name := range []string{"expired", "invalid", "disabled"} {
+		id := summaryTestIdentity(t, db, name, "codex", "team")
+		five := summaryTestRow(18000, 25, 100, 1, now)
+		five.ResetAt = now.Add(time.Minute).Format(time.RFC3339)
+		switch name {
+		case "expired":
+			five.ResetAt = now.Add(-time.Minute).Format(time.RFC3339)
+		case "invalid":
+			five.ResetAt = "invalid"
+		case "disabled":
+			if err := db.Model(&id).Update("disabled", true).Error; err != nil {
+				t.Fatal(err)
+			}
+		}
+		s.rememberSummarySnapshot(id.Identity, id.Type, withWindowUsageEstimates(CheckResponse{Quota: []QuotaRow{five}}), now, true)
+	}
+	// Also verifies persisted snapshots after restart, rather than task timestamps.
+	restarted := summaryTestService(db)
+	got, err := restarted.quotaSummaryAt(context.Background(), now.Add(time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, expected := range []time.Time{now.Add(237 * time.Minute), now.Add(147 * time.Hour)} {
+		row := got.Groups[0].Quota[i]
+		if row.Coverage.NextResetAt == nil || !row.Coverage.NextResetAt.Equal(expected) {
+			t.Fatalf("window %d reset = %v; want %v", i, row.Coverage.NextResetAt, expected)
+		}
+		if row.ResetAt != "" {
+			t.Fatal("individual next reset must not claim the aggregate resets together")
+		}
+	}
+	// Once the earliest file has reset, the display advances to the next file.
+	got, err = restarted.quotaSummaryAt(context.Background(), now.Add(237*time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Groups[0].Quota[0].Coverage.NextResetAt == nil || !got.Groups[0].Quota[0].Coverage.NextResetAt.Equal(now.Add(4*time.Hour)) {
+		t.Fatal("next reset failed to advance past expired file")
+	}
+	got, err = restarted.quotaSummaryAt(context.Background(), now.Add(4*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Groups[0].Quota[0].Coverage.NextResetAt != nil {
+		t.Fatal("empty window kept an obsolete reset time")
+	}
+}

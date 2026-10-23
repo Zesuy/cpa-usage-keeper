@@ -21,6 +21,7 @@ const SummaryMaxSnapshotAge = 15 * time.Minute
 
 // SummaryCoverage counts files, never deduplicating email addresses or workspaces.
 type SummaryCoverage struct {
+	NextResetAt      *time.Time `json:"next_reset_at,omitempty"`
 	Retained         int        `json:"retained"`
 	Expired          int        `json:"expired"`
 	OldestSnapshotAt *time.Time `json:"oldest_snapshot_at,omitempty"`
@@ -380,6 +381,12 @@ func (s *Service) quotaSummaryAt(ctx context.Context, now time.Time) (SummaryRes
 				if !ok {
 					row.Coverage.Unknown++
 					continue
+				}
+				// This is the next individual reset among valid participating windows,
+				// not a shared reset for the entire aggregate.
+				if row.Coverage.NextResetAt == nil || reset.Before(*row.Coverage.NextResetAt) {
+					stamp := reset
+					row.Coverage.NextResetAt = &stamp
 				}
 				candidate := summaryCandidate{row: source, plan: plan, fraction: fraction}
 				if source.WindowUsageEstimateTokens != nil && source.WindowUsageEstimateCost != nil && validCapacity(capacityValue{tokens: *source.WindowUsageEstimateTokens, cost: *source.WindowUsageEstimateCost}) {

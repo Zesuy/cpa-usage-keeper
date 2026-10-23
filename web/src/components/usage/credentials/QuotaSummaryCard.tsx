@@ -233,6 +233,9 @@ function QuotaSummaryWindowBar({
   const oldestEstimateAt = coverage.oldest_estimate_at
   const isUnknown = mode === 'estimated' ? !display.windowUsageEstimate : !display.windowUsage
   const state = mode === 'estimated' ? row.estimate_state : row.usage_state
+  const nextResetAt = coverage.next_reset_at
+  const nextResetLabel = nextResetAt ? formatQuotaResetLabel(nextResetAt, timeZone) : ''
+  const nextResetTitle = t('usage_stats.quota_summary_next_reset', { date: nextResetLabel })
   const snapshotAt = coverage.oldest_snapshot_at
   const snapshotLabel = snapshotAt ? formatQuotaResetLabel(snapshotAt, timeZone) || new Date(snapshotAt).toLocaleString() : ''
   const snapshotTitle = snapshotAt ? t('usage_stats.quota_summary_snapshot_date', { date: snapshotLabel }) : ''
@@ -278,7 +281,7 @@ function QuotaSummaryWindowBar({
         timeZone={timeZone}
         showGroupMetadata={false}
         headerExtra={headerExtra}
-        metaExtra={snapshotAt ? <time dateTime={snapshotAt} title={snapshotTitle} className={quotaStyles.credentialQuotaResetTime}>{snapshotLabel}</time> : undefined}
+        metaExtra={nextResetLabel ? <time dateTime={nextResetAt} title={nextResetTitle} className={quotaStyles.credentialQuotaResetTime}>{nextResetLabel}</time> : undefined}
       />
       {isUnknown && (
         <div className={styles.windowMetaNote}>

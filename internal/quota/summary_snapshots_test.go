@@ -127,8 +127,16 @@ func TestSummarySnapshotPartialHeaderKeepsIndependentWindowAndPlan(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Groups[0].Quota[0].UsageState != "reset" {
+	if got.Groups[0].Quota[0].UsageState != "reset" || got.Groups[0].Quota[0].Coverage.NextResetAt != nil {
 		t.Fatal("relative reset slid forward after restart")
+	}
+	beforeReset, err := summaryTestService(db).quotaSummaryAt(context.Background(), later.Add(time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	nextReset := beforeReset.Groups[0].Quota[0].Coverage.NextResetAt
+	if nextReset == nil || !nextReset.Equal(later.Add(10*time.Second)) {
+		t.Fatal("next relative reset was not anchored to its observation")
 	}
 	// Identity plan changes invalidate restored snapshots even before the next refresh.
 	if err := db.Model(&id).Update("plan_type", "plus").Error; err != nil {
