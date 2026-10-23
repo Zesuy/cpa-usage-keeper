@@ -39,10 +39,22 @@ type SummaryRow struct {
 }
 
 type SummaryGroup struct {
-	Provider string       `json:"provider"`
-	Pool     string       `json:"pool"`
-	Label    string       `json:"label"`
-	Quota    []SummaryRow `json:"quota"`
+	Provider string            `json:"provider"`
+	Pool     string            `json:"pool"`
+	Label    string            `json:"label"`
+	Quota    []SummaryRow      `json:"quota"`
+	Stats    SummaryUsageStats `json:"stats"`
+}
+
+// SummaryUsageStats sums the same reset-adjusted counters as the credential list.
+// Antigravity pools share their participating files, so these counters overlap.
+type SummaryUsageStats struct {
+	TotalRequests   int64 `json:"total_requests"`
+	SuccessCount    int64 `json:"success_count"`
+	FailureCount    int64 `json:"failure_count"`
+	InputTokens     int64 `json:"input_tokens"`
+	CacheReadTokens int64 `json:"cache_read_tokens"`
+	TotalTokens     int64 `json:"total_tokens"`
 }
 
 type SummaryResponse struct {
@@ -110,7 +122,7 @@ func summaryPlan(identity entities.UsageIdentity, response *CheckResponse) strin
 func (s *Service) listSummaryCredentials(ctx context.Context, now time.Time) ([]entities.UsageIdentity, error) {
 	var identities []entities.UsageIdentity
 	err := s.db.WithContext(ctx).
-		Select("identity, type, provider, auth_type, is_deleted, disabled, active_start, active_until, plan_type").
+		Select("identity, type, provider, auth_type, is_deleted, disabled, active_start, active_until, plan_type, total_requests, success_count, failure_count, input_tokens, cache_read_tokens, total_tokens, reset_total_requests, reset_success_count, reset_failure_count, reset_input_tokens, reset_cache_read_tokens, reset_total_tokens").
 		Where("auth_type = ? AND is_deleted = ? AND (disabled IS NULL OR disabled = ?)", entities.UsageIdentityAuthTypeCredential, false, false).
 		Order("identity ASC").Find(&identities).Error
 	if err != nil {
@@ -254,6 +266,13 @@ func (s *Service) quotaSummaryAt(ctx context.Context, now time.Time) (SummaryRes
 	}
 	for _, pool := range summaryPools {
 		group := SummaryGroup{Provider: pool.provider, Pool: pool.key, Label: pool.label, Quota: []SummaryRow{}}
+		for _, identity := range identities {
+			if summaryProvider(identity) == pool.provider {
+				if err := group.Stats.add(identity); err != nil {
+					return response, err
+				}
+			}
+		}
 		for _, seconds := range []int64{quotaWindowFiveHourSeconds, quotaWindowSevenDaySeconds} {
 			label := "5h"
 			if seconds == quotaWindowSevenDaySeconds {
@@ -416,6 +435,31 @@ func (s *Service) quotaSummaryAt(ctx context.Context, now time.Time) (SummaryRes
 		}
 	}
 	return response, nil
+}
+
+func (stats *SummaryUsageStats) add(identity entities.UsageIdentity) error {
+	values := []struct {
+		target       *int64
+		total, reset int64
+	}{
+		{&stats.TotalRequests, identity.TotalRequests, identity.ResetTotalRequests},
+		{&stats.SuccessCount, identity.SuccessCount, identity.ResetSuccessCount},
+		{&stats.FailureCount, identity.FailureCount, identity.ResetFailureCount},
+		{&stats.InputTokens, identity.InputTokens, identity.ResetInputTokens},
+		{&stats.CacheReadTokens, identity.CacheReadTokens, identity.ResetCacheReadTokens},
+		{&stats.TotalTokens, identity.TotalTokens, identity.ResetTotalTokens},
+	}
+	for _, value := range values {
+		if value.reset > 0 && value.total < math.MinInt64+value.reset || value.reset < 0 && value.total > math.MaxInt64+value.reset {
+			return fmt.Errorf("quota summary statistics overflow")
+		}
+		delta := value.total - value.reset
+		if delta > 0 && *value.target > math.MaxInt64-delta || delta < 0 && *value.target < math.MinInt64-delta {
+			return fmt.Errorf("quota summary statistics overflow")
+		}
+		*value.target += delta
+	}
+	return nil
 }
 
 func summaryResetAt(row QuotaRow, refreshedAt time.Time) (time.Time, bool) {

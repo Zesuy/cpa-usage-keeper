@@ -403,3 +403,74 @@ func TestSummaryRefreshUsesAllEligibleFilesAndReusesPendingTasks(t *testing.T) {
 		}
 	}
 }
+
+func TestSummaryMetricsReuseResetAdjustedCredentialCounters(t *testing.T) {
+	db := summaryTestDB(t)
+	s := summaryTestService(db)
+	now := time.Now().Truncate(time.Second)
+	a := summaryTestIdentity(t, db, "metrics-a", "codex", "team")
+	a.TotalRequests, a.SuccessCount, a.FailureCount = 10, 9, 1
+	a.InputTokens, a.CacheReadTokens, a.TotalTokens = 100, 80, 150
+	a.ResetTotalRequests, a.ResetSuccessCount, a.ResetFailureCount = 2, 2, 0
+	a.ResetInputTokens, a.ResetCacheReadTokens, a.ResetTotalTokens = 20, 10, 30
+	a.StatsResetAt = ptr(now.Add(-time.Hour))
+	if err := db.Save(&a).Error; err != nil {
+		t.Fatal(err)
+	}
+	b := summaryTestIdentity(t, db, "metrics-b", "codex", "team")
+	b.TotalRequests, b.SuccessCount, b.FailureCount = 90, 45, 45
+	b.InputTokens, b.CacheReadTokens, b.TotalTokens = 900, 90, 1000
+	if err := db.Save(&b).Error; err != nil {
+		t.Fatal(err)
+	}
+	ag := summaryTestIdentity(t, db, "metrics-ag", "antigravity", "pro")
+	ag.TotalRequests, ag.SuccessCount, ag.FailureCount = 6, 4, 2
+	ag.InputTokens, ag.CacheReadTokens, ag.TotalTokens = 200, 50, 400
+	ag.ResetTotalRequests, ag.ResetSuccessCount, ag.ResetFailureCount = 2, 1, 1
+	ag.ResetInputTokens, ag.ResetCacheReadTokens, ag.ResetTotalTokens = 60, 20, 80
+	if err := db.Save(&ag).Error; err != nil {
+		t.Fatal(err)
+	}
+	// Ineligible files must not affect metrics even when counters are large.
+	for _, name := range []string{"disabled-metrics", "expired-metrics", "future-metrics", "deleted-metrics"} {
+		id := summaryTestIdentity(t, db, name, "codex", "team")
+		id.TotalRequests, id.TotalTokens = 999, 999999
+		switch name {
+		case "disabled-metrics":
+			id.Disabled = ptr(true)
+		case "expired-metrics":
+			id.ActiveUntil = ptr(now)
+		case "future-metrics":
+			id.ActiveStart = ptr(now.Add(time.Hour))
+		case "deleted-metrics":
+			id.IsDeleted = true
+		}
+		if err := db.Save(&id).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Counters remain available with missing quota cache: they are independent of
+	// 5h/Weekly snapshots, provider refreshes and current/estimated display mode.
+	got, err := s.quotaSummaryAt(context.Background(), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantCodex := SummaryUsageStats{TotalRequests: 98, SuccessCount: 52, FailureCount: 46, InputTokens: 980, CacheReadTokens: 160, TotalTokens: 1120}
+	wantAG := SummaryUsageStats{TotalRequests: 4, SuccessCount: 3, FailureCount: 1, InputTokens: 140, CacheReadTokens: 30, TotalTokens: 320}
+	if got.Eligible != 3 || len(got.Groups) != 3 {
+		t.Fatalf("wrong metrics scope: eligible=%d groups=%d", got.Eligible, len(got.Groups))
+	}
+	if got.Groups[0].Stats != wantCodex {
+		t.Fatalf("stats=%+v want=%+v", got.Groups[0].Stats, wantCodex)
+	}
+	if got.Groups[1].Stats != wantAG || got.Groups[2].Stats != wantAG {
+		t.Fatal("Antigravity stats must reflect the same participating credential files")
+	}
+}
+
+func TestSummaryMetricsRejectOverflow(t *testing.T) {
+	stats := SummaryUsageStats{TotalTokens: math.MaxInt64}
+	if err := stats.add(entities.UsageIdentity{TotalTokens: 1}); err == nil {
+		t.Fatal("token counters wrapped around")
+	}
+}

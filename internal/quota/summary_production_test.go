@@ -124,6 +124,21 @@ func TestQuotaSummaryFromProductionBackup(t *testing.T) {
 	if len(result.Groups) == 0 {
 		t.Fatal("missing aggregate groups")
 	}
+	var expectedStats SummaryUsageStats
+	for _, identity := range identities {
+		if identity.ActiveStart != nil && generatedAt.Before(*identity.ActiveStart) || identity.ActiveUntil != nil && !generatedAt.Before(*identity.ActiveUntil) {
+			continue
+		}
+		expectedStats.TotalRequests += identity.TotalRequests - identity.ResetTotalRequests
+		expectedStats.SuccessCount += identity.SuccessCount - identity.ResetSuccessCount
+		expectedStats.FailureCount += identity.FailureCount - identity.ResetFailureCount
+		expectedStats.InputTokens += identity.InputTokens - identity.ResetInputTokens
+		expectedStats.CacheReadTokens += identity.CacheReadTokens - identity.ResetCacheReadTokens
+		expectedStats.TotalTokens += identity.TotalTokens - identity.ResetTotalTokens
+	}
+	if result.Groups[0].Stats != expectedStats {
+		t.Fatal("summary metrics differ from stored credential counters")
+	}
 	for _, aggregate := range result.Groups[0].Quota {
 		var expectedTokens int64
 		var expectedCost float64
