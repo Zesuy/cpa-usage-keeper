@@ -126,6 +126,14 @@ python3 -m http.server 4174 --bind 127.0.0.1 --directory examples/account-quota-
 node --test examples/account-quota-panel/*.test.mjs
 ```
 
+浏览器验证需要可用的 `agent-browser` CLI、浏览器及 CDN 网络访问。它检查三种尺寸、375px 窄屏内部边界、键盘操作、详情与连接状态隔离及缺组清空：
+
+```sh
+node --test examples/account-quota-panel/browser-verify.mjs
+```
+
+截图默认写入系统临时目录下的 `quota-demo-screenshots`；可用 `QUOTA_SCREENSHOT_DIR` 指定目录。
+
 后端配置、密钥权限边界及费用读取协调测试：
 
 ```sh

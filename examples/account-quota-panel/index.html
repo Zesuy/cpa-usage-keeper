@@ -1,0 +1,1350 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>AccountQuotaCard · Apple 风格统合额度组件</title>
+  <script>
+    // 在最早阶段捕获所有脚本错误供测试与宿主检查
+    window.__pageErrors = [];
+    window.addEventListener('error', function(e) {
+      window.__pageErrors.push(e.message || String(e));
+    });
+    window.addEventListener('unhandledrejection', function(e) {
+      window.__pageErrors.push(e.reason?.message || String(e.reason));
+    });
+  </script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --card-bg: rgba(22, 22, 26, 0.82);
+      --card-border: rgba(255, 255, 255, 0.11);
+      --subcard-bg: rgba(255, 255, 255, 0.045);
+      --subcard-border: rgba(255, 255, 255, 0.08);
+    }
+
+    * {
+      box-sizing: border-box;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Inter", "PingFang SC", sans-serif;
+      background-color: #090a0f;
+      background-image: 
+        radial-gradient(circle at 20% 20%, rgba(48, 209, 88, 0.08) 0%, transparent 45%),
+        radial-gradient(circle at 80% 30%, rgba(255, 159, 10, 0.08) 0%, transparent 45%),
+        radial-gradient(circle at 50% 85%, rgba(10, 132, 255, 0.07) 0%, transparent 50%);
+      min-height: 100vh;
+      color: #f5f5f7;
+    }
+
+    .font-mono-num {
+      font-family: "SF Mono", "JetBrains Mono", ui-monospace, monospace;
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* 主组件容器：纯正 Apple 暗色毛玻璃材质 + 高光内描边 */
+    .apple-widget-card {
+      background: var(--card-bg);
+      backdrop-filter: blur(36px) saturate(190%);
+      -webkit-backdrop-filter: blur(36px) saturate(190%);
+      border-radius: 30px;
+      border: 1px solid var(--card-border);
+      box-shadow: 
+        0 28px 60px -12px rgba(0, 0, 0, 0.75),
+        0 0 1px 1px rgba(0, 0, 0, 0.6),
+        inset 0 1px 0 0 rgba(255, 255, 255, 0.16);
+      transition: all 0.38s cubic-bezier(0.22, 1, 0.36, 1);
+      position: relative;
+      overflow: hidden;
+      max-width: 100%;
+    }
+
+    /* 顶部环境微光（随左右两侧额度状态染色） */
+    .ambient-glow-left {
+      position: absolute;
+      top: -40px;
+      left: 10%;
+      width: 150px;
+      height: 150px;
+      border-radius: 50%;
+      filter: blur(52px);
+      opacity: 0.22;
+      pointer-events: none;
+      transition: background 0.5s ease;
+    }
+
+    .ambient-glow-right {
+      position: absolute;
+      top: -40px;
+      right: 10%;
+      width: 150px;
+      height: 150px;
+      border-radius: 50%;
+      filter: blur(52px);
+      opacity: 0.22;
+      pointer-events: none;
+      transition: background 0.5s ease;
+    }
+
+    /* 子区块毛玻璃卡片 */
+    .apple-subcard {
+      background: var(--subcard-bg);
+      border: 1px solid var(--subcard-border);
+      border-radius: 16px;
+    }
+
+    /* Apple Watch 圆环动画与发光特效 */
+    .ring-progress {
+      transition: stroke-dashoffset 0.75s cubic-bezier(0.22, 1, 0.36, 1), stroke 0.4s ease, opacity 0.35s ease, filter 0.35s ease;
+      transform: rotate(-90deg);
+      transform-origin: 50% 50%;
+    }
+
+    .ring-track {
+      transition: stroke 0.4s ease, opacity 0.35s ease;
+    }
+
+    /* 焦点聚光效果：当前中心展示哪个环，对应环高亮发光，另一环柔和暗化 */
+    .ring-dimmed {
+      opacity: 0.32;
+    }
+    .ring-focused {
+      opacity: 1;
+    }
+
+    /* 徽章样式 */
+    .badge-team {
+      background: rgba(99, 102, 241, 0.18);
+      border: 1px solid rgba(129, 140, 248, 0.35);
+      color: #a5b4fc;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+      box-shadow: 0 0 12px rgba(99, 102, 241, 0.2);
+    }
+    .badge-pro {
+      background: rgba(10, 132, 255, 0.18);
+      border: 1px solid rgba(10, 132, 255, 0.35);
+      color: #5eb0ff;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+      box-shadow: 0 0 12px rgba(10, 132, 255, 0.22);
+    }
+
+    /* 模式切换尺寸控制 */
+    .mode-standard {
+      width: 430px;
+      padding: 20px;
+    }
+
+    /* 手机限高紧凑组件模式 */
+    .mode-compact {
+      width: 390px;
+      padding: 14px 16px;
+      border-radius: 26px;
+    }
+    .mode-compact .ring-svg-wrapper {
+      width: 112px !important;
+      height: 112px !important;
+    }
+    .mode-compact .ring-center-val {
+      font-size: 1.25rem !important;
+    }
+    .mode-compact .quota-pill-box {
+      padding: 7px 10px !important;
+      margin-top: 8px !important;
+    }
+    .mode-compact .extra-telemetry-detail {
+      display: none !important;
+    }
+    .mode-compact .compact-telemetry-bar {
+      display: grid !important;
+    }
+
+    /* 极简窄条模式 (桌面默认两列水平) */
+    .mode-mini {
+      width: 450px;
+      padding: 10px 12px;
+      border-radius: 22px;
+    }
+    .mode-mini .top-header-bar,
+    .mode-mini .bottom-telemetry-section,
+    .mode-mini .provider-header-row,
+    .mode-mini .quota-box-header,
+    .mode-mini .ring-mode-dots {
+      display: none !important;
+    }
+    .mode-mini .dual-columns-grid {
+      gap: 8px !important;
+    }
+    .mode-mini .provider-column {
+      padding: 8px 10px !important;
+      border-radius: 14px !important;
+      overflow: hidden;
+    }
+    .mode-mini .provider-col-body {
+      flex-direction: row !important;
+      align-items: center !important;
+      justify-content: flex-start !important;
+      gap: 10px !important;
+      width: 100%;
+    }
+    .mode-mini .ring-svg-wrapper {
+      width: 52px !important;
+      height: 52px !important;
+      margin: 0 !important;
+      flex-shrink: 0;
+    }
+    .mode-mini .ring-center-icon {
+      display: none !important;
+    }
+    .mode-mini .ring-center-val {
+      font-size: 0.78rem !important;
+    }
+    .mode-mini .quota-pill-box {
+      margin-top: 0 !important;
+      flex: 1;
+      min-width: 0;
+      padding: 0 !important;
+      background: transparent !important;
+      border: none !important;
+    }
+    .mode-mini .mini-inline-title {
+      display: flex !important;
+    }
+
+    /* 移动端 (<= 440px，特别是 375px 窄屏) 深度优化：杜绝文字截断与容器溢出 */
+    @media (max-width: 440px) {
+      .apple-widget-card {
+        width: 100% !important;
+        max-width: 100% !important;
+        border-radius: 22px;
+      }
+      .mode-standard {
+        padding: 14px 10px;
+      }
+      .mode-compact {
+        padding: 12px 8px;
+      }
+      .dual-columns-grid {
+        gap: 6px !important;
+      }
+      .provider-column {
+        padding: 8px 5px !important;
+      }
+      .ring-svg-wrapper {
+        width: 100px !important;
+        height: 100px !important;
+      }
+      .ring-center-val {
+        font-size: 1.1rem !important;
+      }
+      .quota-pill-box {
+        padding: 6px 4px !important;
+      }
+
+      /* 金额按钮在窄屏下自适应换行，确保 $8.54 与 $10.09 完整显示不撑爆边框 */
+      .quota-usd-container {
+        flex-wrap: wrap !important;
+        gap: 2px 4px !important;
+        justify-content: space-around !important;
+      }
+      .quota-usd-sep {
+        display: none !important;
+      }
+      .quota-usd-btn {
+        padding: 1px 2px !important;
+        margin: 0 !important;
+      }
+      .quota-usd-val {
+        font-size: 11px !important;
+      }
+
+      .extra-telemetry-detail {
+        padding: 8px 6px !important;
+        gap: 4px !important;
+      }
+
+      /* 针对 Mini 极简模式在 375px 窄屏的专属重排：
+         每列内的圆环与文字改为垂直紧凑结构，宽度自适应，金额分行展示，确保名称/倒计时/两窗口金额全部清晰可见，无需 overflow:hidden 遮掩 */
+      .mode-mini {
+        padding: 8px !important;
+      }
+      .mode-mini .dual-columns-grid {
+        gap: 6px !important;
+      }
+      .mode-mini .provider-column {
+        padding: 6px !important;
+      }
+      .mode-mini .provider-col-body {
+        flex-direction: column !important;
+        align-items: center !important;
+        gap: 6px !important;
+      }
+      .mode-mini .ring-svg-wrapper {
+        width: 44px !important;
+        height: 44px !important;
+      }
+      .mode-mini .mini-inline-title {
+        justify-content: center !important;
+        gap: 4px !important;
+      }
+      .mode-mini .quota-usd-container {
+        flex-direction: column !important;
+        align-items: center !important;
+        gap: 1px !important;
+      }
+    }
+
+    /* 键盘可访问性高亮 */
+    button:focus-visible,
+    div[tabindex="0"]:focus-visible {
+      outline: 2px solid #38bdf8;
+      outline-offset: 2px;
+    }
+
+    /* 自定义滑块 */
+    input[type="range"] {
+      -webkit-appearance: none;
+      appearance: none;
+      background: rgba(255, 255, 255, 0.12);
+      height: 5px;
+      border-radius: 999px;
+      outline: none;
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: #ffffff;
+      cursor: pointer;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+    }
+
+    /* 轻微呼吸脉冲（低额度红色预警） */
+    @keyframes criticalPulse {
+      0%, 100% { filter: drop-shadow(0 0 4px rgba(255, 69, 58, 0.35)); }
+      50% { filter: drop-shadow(0 0 11px rgba(255, 69, 58, 0.85)); }
+    }
+    .ring-critical-glow {
+      animation: criticalPulse 2s infinite ease-in-out;
+    }
+  </style>
+</head>
+<body class="flex flex-col items-center justify-start min-h-screen p-2 sm:p-6 select-none">
+
+  <!-- ==================== 顶部演示切换栏（仅在 ?demo=1 时显示，线上默认隐藏） ==================== -->
+  <div id="demo-toolbar" class="hidden w-full max-w-4xl mb-6 flex-wrap items-center justify-between gap-3 bg-zinc-900/80 border border-white/10 rounded-2xl px-4 py-3 backdrop-blur-xl">
+    <div class="flex items-center gap-2.5">
+      <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+      <span class="text-xs font-semibold tracking-wide text-zinc-200">AccountQuotaCard 预览工作台</span>
+      <span class="text-[11px] text-zinc-400 hidden sm:inline">（外圈 = 5h 额度 · 内圈 = Weekly 周额度）</span>
+    </div>
+
+    <!-- 形态切换：桌面浮窗 / 手机限高组件 / 极简胶囊 -->
+    <div class="flex items-center gap-1 bg-black/50 p-1 rounded-xl border border-white/5">
+      <button type="button" id="btn-size-standard" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-white/15 text-white transition">
+        桌面标准浮窗
+      </button>
+      <button type="button" id="btn-size-compact" class="px-3 py-1.5 rounded-lg text-xs font-medium text-zinc-400 hover:text-white transition">
+        手机限高组件
+      </button>
+      <button type="button" id="btn-size-mini" class="px-3 py-1.5 rounded-lg text-xs font-medium text-zinc-400 hover:text-white transition">
+        极简横条
+      </button>
+    </div>
+
+    <!-- 预设状态一键体验 -->
+    <div class="flex items-center gap-1.5">
+      <button type="button" id="btn-preset-sketch" class="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-amber-500/15 text-amber-300 border border-amber-500/30 hover:bg-amber-500/25 transition">
+        🎨 手绘稿配色 (左绿右黄)
+      </button>
+      <button type="button" id="btn-preset-keeper" class="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/25 transition">
+        📊 Keeper 原图数据
+      </button>
+      <button type="button" id="btn-preset-critical" class="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-rose-500/15 text-rose-300 border border-rose-500/30 hover:bg-rose-500/25 transition">
+        🚨 额度告急预警
+      </button>
+    </div>
+  </div>
+
+  <!-- ==================== 核心组件本体：AccountQuotaCard ==================== -->
+  <div class="flex items-center justify-center my-auto py-2 w-full">
+    
+    <div id="AccountQuotaCard" class="apple-widget-card mode-standard">
+      <!-- 动态背景氛围光晕 -->
+      <div id="glow-left" class="ambient-glow-left"></div>
+      <div id="glow-right" class="ambient-glow-right"></div>
+
+      <!-- 1. 顶部轻量状态栏 -->
+      <div class="top-header-bar flex items-center justify-between mb-3.5 px-1">
+        <div class="flex items-center gap-2">
+          <div id="status-dot" class="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399] transition-colors" title="正常连接"></div>
+          <span class="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">Keeper Quota</span>
+          <span id="status-badge" class="text-[10px] px-1.5 py-0.5 rounded bg-white/5 text-zinc-400 border border-white/5 font-mono-num">USD</span>
+        </div>
+
+        <!-- 全局切换圆环中心焦点：⚡ 外圈 5h / ◈ 内圈 1w -->
+        <div class="flex items-center gap-1 bg-black/40 p-0.5 rounded-lg border border-white/10">
+          <button type="button" id="focus-btn-5h" class="flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-white/15 text-white transition" aria-label="聚焦 5h 外圈">
+            <span class="text-cyan-400">⚡</span> 外环 5h
+          </button>
+          <button type="button" id="focus-btn-wk" class="flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold text-zinc-400 hover:text-white transition" aria-label="聚焦 1w 内圈">
+            <span class="text-violet-400">◈</span> 内环 1w
+          </button>
+        </div>
+      </div>
+
+      <!-- 异常状态提示条（如 401 提示检查宿主密钥、网络错误提示重试中） -->
+      <div id="status-banner" class="hidden mb-3 px-3 py-1.5 rounded-xl text-xs flex items-center justify-between border">
+        <span id="status-banner-text" class="truncate pr-2"></span>
+        <span id="status-banner-time" class="text-[10px] opacity-75 font-mono-num flex-shrink-0"></span>
+      </div>
+
+      <!-- 独立覆盖详情提示盒（不与 status-banner 共用，支持键盘关闭） -->
+      <div id="coverage-detail-box" class="hidden mb-3 p-2.5 rounded-xl text-xs border bg-zinc-900/90 border-amber-500/30 text-amber-300">
+        <div class="flex items-start justify-between gap-2">
+          <span id="coverage-detail-text" class="break-words leading-relaxed flex-1"></span>
+          <button type="button" id="btn-close-coverage" class="text-zinc-400 hover:text-white text-xs px-1.5 py-0.5 rounded hover:bg-white/10 focus:outline-none focus-visible:ring-1 focus-visible:ring-amber-400" aria-label="关闭覆盖说明">✕</button>
+        </div>
+      </div>
+
+      <!-- 2. 核心双列区：左 Codex/GPT | 右 反重力 (Antigravity / Gemini) -->
+      <div class="dual-columns-grid grid grid-cols-2 gap-3">
+
+        <!-- ==================== 左列：Codex / GPT ==================== -->
+        <div class="provider-column apple-subcard p-3 flex flex-col items-center relative">
+          
+          <!-- 顶部服务商标题 + Team ×3 徽章 (极简横条模式下自动隐藏) -->
+          <div class="provider-header-row w-full flex items-center justify-between gap-1 mb-1.5">
+            <div class="flex items-center gap-1.5 min-w-0">
+              <!-- Codex 终端图标 -->
+              <div class="w-6 h-6 rounded-full bg-indigo-500/20 border border-indigo-400/30 flex items-center justify-center flex-shrink-0">
+                <svg class="w-3.5 h-3.5 text-indigo-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="4 17 10 11 4 5"></polyline>
+                  <line x1="12" y1="19" x2="20" y2="19"></line>
+                </svg>
+              </div>
+              <span id="codex-title" class="text-xs font-bold text-white truncate">Codex / GPT</span>
+            </div>
+            <span id="codex-badge" class="badge-team text-[10px] font-bold px-2 py-0.5 rounded-full flex-shrink-0">
+              —
+            </span>
+          </div>
+
+          <div class="provider-col-body flex flex-col items-center w-full">
+            <!-- Apple 风格双层同心圆环 (外圈: 5h, 内圈: 1w) -->
+            <div id="codex-ring-wrapper" class="ring-svg-wrapper relative w-[128px] h-[128px] my-1 flex items-center justify-center cursor-pointer group" tabindex="0" role="button" aria-label="切换 Codex 中心显示：5h 外环 或 1w 内环" title="点击切换中心显示：⚡5h (外环) / ◈1w (内环)">
+              <svg class="w-full h-full overflow-visible" viewBox="0 0 140 140">
+                <defs>
+                  <!-- 动态渐变：Codex 外圈 (5h) -->
+                  <linearGradient id="codex-outer-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop id="codex-outer-stop1" offset="0%" stop-color="#30D158" />
+                    <stop id="codex-outer-stop2" offset="100%" stop-color="#00F59B" />
+                  </linearGradient>
+                  <!-- 动态渐变：Codex 内圈 (1w) -->
+                  <linearGradient id="codex-inner-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop id="codex-inner-stop1" offset="0%" stop-color="#34C759" />
+                    <stop id="codex-inner-stop2" offset="100%" stop-color="#30D158" />
+                  </linearGradient>
+                </defs>
+
+                <!-- 外圈底轨 (5h Quota, r=56, C=351.86) -->
+                <circle id="codex-outer-track" class="ring-track" cx="70" cy="70" r="56" fill="none" stroke="rgba(255, 255, 255, 0.08)" stroke-width="12" />
+                <!-- 外圈进度 (5h Quota) -->
+                <circle id="codex-outer-ring" class="ring-progress ring-focused" cx="70" cy="70" r="56" fill="none" stroke="url(#codex-outer-grad)" stroke-width="12" stroke-linecap="round" stroke-dasharray="351.86" stroke-dashoffset="351.86" style="opacity: 0;" />
+
+                <!-- 内圈底轨 (1w Quota, r=40, C=251.33) -->
+                <circle id="codex-inner-track" class="ring-track" cx="70" cy="70" r="40" fill="none" stroke="rgba(255, 255, 255, 0.08)" stroke-width="12" />
+                <!-- 内圈进度 (1w Quota) -->
+                <circle id="codex-inner-ring" class="ring-progress ring-dimmed" cx="70" cy="70" r="40" fill="none" stroke="url(#codex-inner-grad)" stroke-width="12" stroke-linecap="round" stroke-dasharray="251.33" stroke-dashoffset="251.33" style="opacity: 0;" />
+              </svg>
+
+              <!-- 圆环中心：色彩图标 + 核心百分比 + 内外环指示点 -->
+              <div class="absolute inset-0 flex flex-col items-center justify-center text-center pointer-events-none">
+                <div id="codex-center-icon" class="ring-center-icon mb-0.5 flex items-center justify-center"></div>
+                <span id="codex-center-pct" class="ring-center-val font-mono-num text-[22px] font-extrabold tracking-tight leading-none text-zinc-500">
+                  —
+                </span>
+                <div class="ring-mode-dots flex items-center gap-1 mt-1.5">
+                  <span id="codex-dot-5h" class="w-1.5 h-1.5 rounded-full bg-zinc-600 transition-all"></span>
+                  <span id="codex-dot-wk" class="w-1 h-1 rounded-full bg-white/20 transition-all"></span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 圆环正下方长条框：5h 预估剩余 | 1w 预估剩余 (单位 USD) -->
+            <div id="codex-quota-box" class="quota-pill-box w-full mt-2 rounded-xl bg-black/45 border border-white/10 px-2 py-1.5 transition-colors">
+              <div class="mini-inline-title hidden items-center justify-between mb-1">
+                <div class="flex items-center gap-1 min-w-0">
+                  <span class="w-2 h-2 rounded-full bg-indigo-400 flex-shrink-0"></span>
+                  <span class="text-[11px] font-bold text-white truncate">Codex</span>
+                </div>
+                <span id="codex-mini-reset" class="font-mono-num text-[10px] text-zinc-400 truncate">—</span>
+              </div>
+
+              <div class="quota-box-header flex items-center justify-between text-[10px] text-zinc-400 mb-1">
+                <div class="flex items-center gap-1">
+                  <span class="font-medium tracking-tight">5h | 1w 预估</span>
+                  <button type="button" id="codex-coverage-info" class="hidden text-amber-400 hover:text-amber-300 focus:outline-none focus-visible:ring-1 focus-visible:ring-amber-400 rounded px-0.5 transition" aria-label="查看覆盖详情" title="">ⓘ</button>
+                </div>
+                <span id="codex-reset-tag" class="font-mono-num text-[10px] text-zinc-300">⟳ —</span>
+              </div>
+
+              <div class="quota-usd-container flex items-center justify-between font-mono-num">
+                <button type="button" id="codex-usd-5h-btn" class="quota-usd-btn flex items-center gap-1 rounded px-1 -ml-1 py-0.5 hover:bg-white/5 transition" title="5h 预估剩余 (USD)">
+                  <span class="text-[10px] text-cyan-400">⚡</span>
+                  <span id="codex-remain-val" class="quota-usd-val text-xs sm:text-[13px] font-bold text-zinc-400">—</span>
+                </button>
+                <span class="quota-usd-sep text-zinc-600 text-xs font-light">|</span>
+                <button type="button" id="codex-usd-wk-btn" class="quota-usd-btn flex items-center gap-1 rounded px-1 -mr-1 py-0.5 hover:bg-white/5 transition" title="1w 预估剩余 (USD)">
+                  <span class="text-[10px] text-violet-400">◈</span>
+                  <span id="codex-total-val" class="quota-usd-val text-xs sm:text-[12px] font-semibold text-zinc-400">—</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ==================== 右列：反重力 (Antigravity / Gemini) ==================== -->
+        <div class="provider-column apple-subcard p-3 flex flex-col items-center relative">
+          
+          <!-- 顶部服务商标题 + Pro ×3 徽章 (极简横条模式下自动隐藏) -->
+          <div class="provider-header-row w-full flex items-center justify-between gap-1 mb-1.5">
+            <div class="flex items-center gap-1.5 min-w-0">
+              <!-- 反重力 Antigravity 彩色 A 字图标 -->
+              <div class="w-6 h-6 rounded-full bg-white/10 border border-white/15 flex items-center justify-center flex-shrink-0">
+                <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none">
+                  <path d="M12 3L4 20H7.5L12 10.5L16.5 20H20L12 3Z" fill="url(#ag-logo-grad)" />
+                  <path d="M8.5 15.5H15.5" stroke="#60A5FA" stroke-width="2.2" stroke-linecap="round"/>
+                  <defs>
+                    <linearGradient id="ag-logo-grad" x1="4" y1="3" x2="20" y2="20" gradientUnits="userSpaceOnUse">
+                      <stop offset="0%" stop-color="#EF4444"/>
+                      <stop offset="50%" stop-color="#F59E0B"/>
+                      <stop offset="100%" stop-color="#3B82F6"/>
+                    </linearGradient>
+                  </defs>
+                </svg>
+              </div>
+              <span id="ag-title" class="text-xs font-bold text-white truncate">反重力 · Gemini</span>
+            </div>
+            <span id="ag-badge" class="badge-pro text-[10px] font-bold px-2 py-0.5 rounded-full flex-shrink-0">
+              —
+            </span>
+          </div>
+
+          <div class="provider-col-body flex flex-col items-center w-full">
+            <!-- Apple 风格双层同心圆环 (外圈: 5h, 内圈: 1w) -->
+            <div id="ag-ring-wrapper" class="ring-svg-wrapper relative w-[128px] h-[128px] my-1 flex items-center justify-center cursor-pointer group" tabindex="0" role="button" aria-label="切换反重力中心显示：5h 外环 或 1w 内环" title="点击切换中心显示：⚡5h (外环) / ◈1w (内环)">
+              <svg class="w-full h-full overflow-visible" viewBox="0 0 140 140">
+                <defs>
+                  <!-- 动态渐变：反重力 外圈 (5h) -->
+                  <linearGradient id="ag-outer-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop id="ag-outer-stop1" offset="0%" stop-color="#FFD60A" />
+                    <stop id="ag-outer-stop2" offset="100%" stop-color="#FF9F0A" />
+                  </linearGradient>
+                  <!-- 动态渐变：反重力 内圈 (1w) -->
+                  <linearGradient id="ag-inner-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop id="ag-inner-stop1" offset="0%" stop-color="#FFCC00" />
+                    <stop id="ag-inner-stop2" offset="100%" stop-color="#FF9500" />
+                  </linearGradient>
+                </defs>
+
+                <!-- 外圈底轨 (5h Quota, r=56, C=351.86) -->
+                <circle id="ag-outer-track" class="ring-track" cx="70" cy="70" r="56" fill="none" stroke="rgba(255, 255, 255, 0.08)" stroke-width="12" />
+                <!-- 外圈进度 (5h Quota) -->
+                <circle id="ag-outer-ring" class="ring-progress ring-focused" cx="70" cy="70" r="56" fill="none" stroke="url(#ag-outer-grad)" stroke-width="12" stroke-linecap="round" stroke-dasharray="351.86" stroke-dashoffset="351.86" style="opacity: 0;" />
+
+                <!-- 内圈底轨 (1w Quota, r=40, C=251.33) -->
+                <circle id="ag-inner-track" class="ring-track" cx="70" cy="70" r="40" fill="none" stroke="rgba(255, 255, 255, 0.08)" stroke-width="12" />
+                <!-- 内圈进度 (1w Quota) -->
+                <circle id="ag-inner-ring" class="ring-progress ring-dimmed" cx="70" cy="70" r="40" fill="none" stroke="url(#ag-inner-grad)" stroke-width="12" stroke-linecap="round" stroke-dasharray="251.33" stroke-dashoffset="251.33" style="opacity: 0;" />
+              </svg>
+
+              <!-- 圆环中心：色彩图标 + 核心百分比 + 内外环指示点 -->
+              <div class="absolute inset-0 flex flex-col items-center justify-center text-center pointer-events-none">
+                <div id="ag-center-icon" class="ring-center-icon mb-0.5 flex items-center justify-center"></div>
+                <span id="ag-center-pct" class="ring-center-val font-mono-num text-[22px] font-extrabold tracking-tight leading-none text-zinc-500">
+                  —
+                </span>
+                <div class="ring-mode-dots flex items-center gap-1 mt-1.5">
+                  <span id="ag-dot-5h" class="w-1.5 h-1.5 rounded-full bg-zinc-600 transition-all"></span>
+                  <span id="ag-dot-wk" class="w-1 h-1 rounded-full bg-white/20 transition-all"></span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 圆环正下方长条框：5h 预估剩余 | 1w 预估剩余 (单位 USD) -->
+            <div id="ag-quota-box" class="quota-pill-box w-full mt-2 rounded-xl bg-black/45 border border-white/10 px-2 py-1.5 transition-colors">
+              <div class="mini-inline-title hidden items-center justify-between mb-1">
+                <div class="flex items-center gap-1 min-w-0">
+                  <span class="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0"></span>
+                  <span class="text-[11px] font-bold text-white truncate">反重力</span>
+                </div>
+                <span id="ag-mini-reset" class="font-mono-num text-[10px] text-zinc-400 truncate">—</span>
+              </div>
+
+              <div class="quota-box-header flex items-center justify-between text-[10px] text-zinc-400 mb-1">
+                <div class="flex items-center gap-1">
+                  <span class="font-medium tracking-tight">5h | 1w 预估</span>
+                  <button type="button" id="ag-coverage-info" class="hidden text-amber-400 hover:text-amber-300 focus:outline-none focus-visible:ring-1 focus-visible:ring-amber-400 rounded px-0.5 transition" aria-label="查看覆盖详情" title="">ⓘ</button>
+                </div>
+                <span id="ag-reset-tag" class="font-mono-num text-[10px] text-zinc-300">⟳ —</span>
+              </div>
+
+              <div class="quota-usd-container flex items-center justify-between font-mono-num">
+                <button type="button" id="ag-usd-5h-btn" class="quota-usd-btn flex items-center gap-1 rounded px-1 -ml-1 py-0.5 hover:bg-white/5 transition" title="5h 预估剩余 (USD)">
+                  <span class="text-[10px] text-cyan-400">⚡</span>
+                  <span id="ag-remain-val" class="quota-usd-val text-xs sm:text-[13px] font-bold text-zinc-400">—</span>
+                </button>
+                <span class="quota-usd-sep text-zinc-600 text-xs font-light">|</span>
+                <button type="button" id="ag-usd-wk-btn" class="quota-usd-btn flex items-center gap-1 rounded px-1 -mr-1 py-0.5 hover:bg-white/5 transition" title="1w 预估剩余 (USD)">
+                  <span class="text-[10px] text-violet-400">◈</span>
+                  <span id="ag-total-val" class="quota-usd-val text-xs sm:text-[12px] font-semibold text-zinc-400">—</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- 3. 底部信息区：展示 Keeper 其余指标（请求数/成功率、累计 Token、缓存命中率、重置时间） -->
+      <div class="bottom-telemetry-section mt-3">
+        
+        <!-- 桌面标准模式：完整双列 Keeper 详情面 -->
+        <div class="extra-telemetry-detail apple-subcard p-3 grid grid-cols-2 gap-3 text-[11px]">
+          
+          <!-- 左下：Codex 附加指标 -->
+          <div class="space-y-1.5 pr-1 border-r border-white/5">
+            <div class="flex items-center justify-between">
+              <span class="text-zinc-400">请求成功率</span>
+              <span id="codex-req-rate" class="font-mono-num font-bold text-zinc-400">—</span>
+            </div>
+            <div class="flex items-center justify-between text-[10px] font-mono-num text-zinc-400">
+              <span>总计 <strong id="codex-req-total" class="text-zinc-200">—</strong></span>
+              <span>(<span id="codex-req-ok" class="text-emerald-400">—</span>/<span id="codex-req-err" class="text-rose-400">—</span>)</span>
+            </div>
+            <div class="flex items-center justify-between pt-1 border-t border-white/5">
+              <span class="text-zinc-400">累计吞吐</span>
+              <span class="font-mono-num font-semibold text-white">
+                <span id="codex-total-tokens">—</span>
+                <span id="codex-token-health" class="text-[10px] text-zinc-400 ml-1" title="缓存读取占比 (cache_read / input)">—</span>
+              </span>
+            </div>
+            <div class="flex items-center justify-between text-[10px] text-zinc-400 font-mono-num">
+              <span>周重置 <span id="codex-wk-left" class="text-zinc-300">—</span></span>
+              <span id="codex-wk-date">—</span>
+            </div>
+          </div>
+
+          <!-- 右下：反重力 Gemini 附加指标 -->
+          <div class="space-y-1.5 pl-1">
+            <div class="flex items-center justify-between">
+              <span class="text-zinc-400">请求成功率</span>
+              <span id="ag-req-rate" class="font-mono-num font-bold text-zinc-400">—</span>
+            </div>
+            <div class="flex items-center justify-between text-[10px] font-mono-num text-zinc-400">
+              <span>总计 <strong id="ag-req-total" class="text-zinc-200">—</strong></span>
+              <span>(<span id="ag-req-ok" class="text-emerald-400">—</span>/<span id="ag-req-err" class="text-rose-400">—</span>)</span>
+            </div>
+            <div class="flex items-center justify-between pt-1 border-t border-white/5">
+              <span class="text-zinc-400">累计吞吐</span>
+              <span class="font-mono-num font-semibold text-white">
+                <span id="ag-total-tokens">—</span>
+                <span id="ag-token-health" class="text-[10px] text-zinc-400 ml-1" title="缓存读取占比 (cache_read / input)">—</span>
+              </span>
+            </div>
+            <div class="flex items-center justify-between text-[10px] text-zinc-400 font-mono-num">
+              <span>周重置 <span id="ag-wk-left" class="text-zinc-300">—</span></span>
+              <span id="ag-wk-date">—</span>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- 手机限高模式专属：自动折叠为一行超紧凑底栏 -->
+        <div class="compact-telemetry-bar hidden apple-subcard px-3 py-2 grid-cols-2 gap-2 text-[10px] font-mono-num">
+          <div class="flex items-center justify-between pr-2 border-r border-white/10">
+            <span class="text-zinc-400"><span id="codex-compact-total">—</span> <span id="codex-compact-rate" class="text-zinc-400">(—)</span></span>
+            <span id="codex-compact-tokens" class="text-zinc-200 font-semibold">—</span>
+          </div>
+          <div class="flex items-center justify-between pl-1">
+            <span class="text-zinc-400"><span id="ag-compact-total">—</span> <span id="ag-compact-rate" class="text-zinc-400">(—)</span></span>
+            <span id="ag-compact-tokens" class="text-zinc-200 font-semibold">—</span>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+
+  </div>
+
+  <!-- ==================== 底部交互调试器（仅在 ?demo=1 时显示） ==================== -->
+  <div id="demo-controller" class="hidden w-full max-w-4xl mt-6 bg-zinc-900/75 border border-white/10 rounded-2xl p-4 backdrop-blur-xl">
+    <div class="flex items-center justify-between mb-3">
+      <div class="flex items-center gap-2">
+        <span class="text-xs font-bold text-white">🎛️ 实时模拟后端额度变化（测试 Apple 圆环随用量自动变色）</span>
+        <span class="text-[11px] text-zinc-400 hidden md:inline">≥60% 苹果绿 · 25%~59% 琥珀黄 · &lt;25% 警戒红</span>
+      </div>
+      <span class="text-[11px] font-mono-num text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20">
+        window.updateAccountQuota(summary)
+      </span>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <!-- Codex 滑块组 -->
+      <div class="bg-black/40 border border-white/5 rounded-xl p-3 space-y-2.5">
+        <div class="text-xs font-semibold text-zinc-300 flex items-center justify-between">
+          <span>左环：Codex / GPT 额度百分比</span>
+          <span class="text-[11px] text-zinc-500">点击圆环可切换中心焦点</span>
+        </div>
+        <div class="flex items-center gap-3">
+          <span class="text-[11px] text-zinc-400 w-20">外圈 (5h):</span>
+          <input id="slider-codex-5h" type="range" min="0" max="100" value="71" class="flex-1" />
+          <span id="label-codex-5h" class="font-mono-num text-xs font-bold w-10 text-right text-emerald-400">71%</span>
+        </div>
+        <div class="flex items-center gap-3">
+          <span class="text-[11px] text-zinc-400 w-20">内圈 (Weekly):</span>
+          <input id="slider-codex-wk" type="range" min="0" max="100" value="95" class="flex-1" />
+          <span id="label-codex-wk" class="font-mono-num text-xs font-bold w-10 text-right text-emerald-400">95%</span>
+        </div>
+      </div>
+
+      <!-- 反重力 滑块组 -->
+      <div class="bg-black/40 border border-white/5 rounded-xl p-3 space-y-2.5">
+        <div class="text-xs font-semibold text-zinc-300 flex items-center justify-between">
+          <span>右环：反重力 (Gemini) 额度百分比</span>
+          <span class="text-[11px] text-zinc-500">随用量绿/黄/红平滑过渡</span>
+        </div>
+        <div class="flex items-center gap-3">
+          <span class="text-[11px] text-zinc-400 w-20">外圈 (5h):</span>
+          <input id="slider-ag-5h" type="range" min="0" max="100" value="52" class="flex-1" />
+          <span id="label-ag-5h" class="font-mono-num text-xs font-bold w-10 text-right text-amber-400">52%</span>
+        </div>
+        <div class="flex items-center gap-3">
+          <span class="text-[11px] text-zinc-400 w-20">内圈 (Weekly):</span>
+          <input id="slider-ag-wk" type="range" min="0" max="100" value="48" class="flex-1" />
+          <span id="label-ag-wk" class="font-mono-num text-xs font-bold w-10 text-right text-amber-400">48%</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import {
+      OUTER_CIRCUMFERENCE,
+      INNER_CIRCUMFERENCE,
+      getAppleRingPalette,
+      calculateDashOffset,
+      adaptSummaryResponse,
+      formatResetCountdown,
+    } from './panel.mjs';
+
+    // 状态机
+    let ringFocus = { codex: '5h', ag: '5h' };
+    let currentModel = {
+      codex: null,
+      antigravity: null,
+      generatedAt: null,
+      eligible: 0,
+      pending: 0,
+    };
+    let currentStatus = { state: 'loading' };
+    let isMockMode = false;
+    let activeCoverageProvider = null; // 当前正在查看覆盖详情的列 ('codex' | 'ag' | null)
+
+    // 解析 URL 参数：?demo=1, ?mode=standard|compact|mini
+    const searchParams = new URLSearchParams(window.location.search);
+    const isDemoParam = searchParams.get('demo') === '1';
+    const initialMode = searchParams.get('mode') || 'standard';
+
+    if (isDemoParam) {
+      document.getElementById('demo-toolbar').classList.remove('hidden');
+      document.getElementById('demo-toolbar').classList.add('flex');
+      document.getElementById('demo-controller').classList.remove('hidden');
+    }
+
+    // 焦点矢量图标
+    function getCenterFocusIconHTML(focusMode) {
+      if (focusMode === '5h') {
+        return `
+          <span class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-cyan-500/15 border border-cyan-400/30 text-cyan-300 shadow-[0_0_8px_rgba(34,211,238,0.25)]">
+            <svg class="w-3 h-3" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M13 2L4.09 12.63C3.74 13.04 4.03 13.67 4.57 13.67H11L10 22L18.91 11.37C19.26 10.96 18.97 10.33 18.43 10.33H12L13 2Z"/>
+            </svg>
+          </span>
+        `;
+      }
+      return `
+        <span class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-violet-500/20 border border-violet-400/35 text-violet-300 shadow-[0_0_8px_rgba(167,139,250,0.3)]">
+          <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="4" width="18" height="18" rx="3"></rect>
+            <line x1="16" y1="2" x2="16" y2="6"></line>
+            <line x1="8" y1="2" x2="8" y2="6"></line>
+            <line x1="3" y1="10" x2="21" y2="10"></line>
+          </svg>
+        </span>
+      `;
+    }
+
+    // 渲染单个服务商列
+    function renderColumn(prefix, data, focusMode, defaultTitle) {
+      const outerRingEl = document.getElementById(`${prefix}-outer-ring`);
+      const innerRingEl = document.getElementById(`${prefix}-inner-ring`);
+      const outerTrackEl = document.getElementById(`${prefix}-outer-track`);
+      const innerTrackEl = document.getElementById(`${prefix}-inner-track`);
+      const outerStop1 = document.getElementById(`${prefix}-outer-stop1`);
+      const outerStop2 = document.getElementById(`${prefix}-outer-stop2`);
+      const innerStop1 = document.getElementById(`${prefix}-inner-stop1`);
+      const innerStop2 = document.getElementById(`${prefix}-inner-stop2`);
+
+      const centerIconEl = document.getElementById(`${prefix}-center-icon`);
+      const centerPctEl = document.getElementById(`${prefix}-center-pct`);
+      const dot5hEl = document.getElementById(`${prefix}-dot-5h`);
+      const dotWkEl = document.getElementById(`${prefix}-dot-wk`);
+
+      const remainEl = document.getElementById(`${prefix}-remain-val`);
+      const totalEl = document.getElementById(`${prefix}-total-val`);
+      const resetTag = document.getElementById(`${prefix}-reset-tag`);
+      const miniResetTag = document.getElementById(`${prefix}-mini-reset`);
+      const quotaBox = document.getElementById(`${prefix}-quota-box`);
+      const coverageInfoEl = document.getElementById(`${prefix}-coverage-info`);
+      const btn5h = document.getElementById(`${prefix}-usd-5h-btn`);
+      const btnWk = document.getElementById(`${prefix}-usd-wk-btn`);
+
+      const titleEl = document.getElementById(`${prefix}-title`);
+      const badgeEl = document.getElementById(`${prefix}-badge`);
+
+      const reqRateEl = document.getElementById(`${prefix}-req-rate`);
+      const reqTotalEl = document.getElementById(`${prefix}-req-total`);
+      const reqOkEl = document.getElementById(`${prefix}-req-ok`);
+      const reqErrEl = document.getElementById(`${prefix}-req-err`);
+      const tokensEl = document.getElementById(`${prefix}-total-tokens`);
+      const tokenHealthEl = document.getElementById(`${prefix}-token-health`);
+      const wkLeftEl = document.getElementById(`${prefix}-wk-left`);
+      const wkDateEl = document.getElementById(`${prefix}-wk-date`);
+
+      // Compact 视图元素
+      const compactTotalEl = document.getElementById(`${prefix}-compact-total`);
+      const compactRateEl = document.getElementById(`${prefix}-compact-rate`);
+      const compactTokensEl = document.getElementById(`${prefix}-compact-tokens`);
+
+      if (!data) {
+        // 该列无数据或未就绪（恢复默认标题并清空数据，中性空状态）
+        if (titleEl) titleEl.textContent = defaultTitle;
+        const neutral = getAppleRingPalette(null);
+        outerStop1.setAttribute('stop-color', neutral.stop1);
+        outerStop2.setAttribute('stop-color', neutral.stop2);
+        innerStop1.setAttribute('stop-color', neutral.stop1);
+        innerStop2.setAttribute('stop-color', neutral.stop2);
+        outerTrackEl.setAttribute('stroke', neutral.track);
+        innerTrackEl.setAttribute('stroke', neutral.track);
+
+        outerRingEl.style.strokeDashoffset = OUTER_CIRCUMFERENCE;
+        innerRingEl.style.strokeDashoffset = INNER_CIRCUMFERENCE;
+        // 彻底隐藏无进度圆环的端点圆点
+        outerRingEl.style.opacity = '0';
+        innerRingEl.style.opacity = '0';
+        outerRingEl.classList.remove('ring-critical-glow');
+
+        centerIconEl.innerHTML = '';
+        centerPctEl.textContent = '—';
+        centerPctEl.className = 'ring-center-val font-mono-num text-[22px] font-extrabold tracking-tight leading-none text-zinc-500';
+        dot5hEl.className = 'w-1.5 h-1.5 rounded-full bg-zinc-600 transition-all';
+        dotWkEl.className = 'w-1 h-1 rounded-full bg-white/20 transition-all';
+
+        remainEl.textContent = '—';
+        totalEl.textContent = '—';
+        remainEl.className = 'quota-usd-val text-xs sm:text-[13px] font-bold text-zinc-500';
+        totalEl.className = 'quota-usd-val text-xs sm:text-[12px] font-semibold text-zinc-500';
+        resetTag.textContent = '⟳ —';
+        if (miniResetTag) miniResetTag.textContent = '—';
+        if (coverageInfoEl) {
+          coverageInfoEl.classList.add('hidden');
+          coverageInfoEl.title = '';
+          coverageInfoEl.onclick = null;
+        }
+        quotaBox.style.borderColor = neutral.borderColor;
+
+        badgeEl.textContent = '—';
+        reqRateEl.textContent = '—';
+        reqTotalEl.textContent = '—';
+        reqOkEl.textContent = '—';
+        reqErrEl.textContent = '—';
+        tokensEl.textContent = '—';
+        tokenHealthEl.textContent = '—';
+        wkLeftEl.textContent = '—';
+        wkDateEl.textContent = '—';
+
+        if (compactTotalEl) compactTotalEl.textContent = '—';
+        if (compactRateEl) compactRateEl.textContent = '(—)';
+        if (compactTokensEl) compactTokensEl.textContent = '—';
+
+        // 若当前打开的正好是被清空的这列，立即关闭详情盒防旧数据残留
+        if (activeCoverageProvider === prefix) {
+          closeCoverageDetail();
+        }
+
+        return 'transparent';
+      }
+
+      // 有数据情况
+      if (titleEl) titleEl.textContent = data.name || defaultTitle;
+      badgeEl.textContent = data.badge || 'Standard';
+
+      const p5h = data.fiveHour.percent;
+      const pWk = data.weekly.percent;
+
+      const outerPalette = getAppleRingPalette(p5h);
+      const innerPalette = getAppleRingPalette(pWk);
+      const activePalette = focusMode === '5h' ? outerPalette : innerPalette;
+
+      // 1. 颜色与底轨
+      outerStop1.setAttribute('stop-color', outerPalette.stop1);
+      outerStop2.setAttribute('stop-color', outerPalette.stop2);
+      outerTrackEl.setAttribute('stroke', outerPalette.track);
+
+      innerStop1.setAttribute('stop-color', innerPalette.stop1);
+      innerStop2.setAttribute('stop-color', innerPalette.stop2);
+      innerTrackEl.setAttribute('stroke', innerPalette.track);
+
+      // 2. 弧度与发光（当数值为 0 或 null 时隐藏弧线以防圆角端点渲染圆点）
+      const outerOffset = calculateDashOffset(OUTER_CIRCUMFERENCE, p5h);
+      const innerOffset = calculateDashOffset(INNER_CIRCUMFERENCE, pWk);
+      outerRingEl.style.strokeDashoffset = outerOffset.toFixed(2);
+      innerRingEl.style.strokeDashoffset = innerOffset.toFixed(2);
+
+      const isOuterZero = p5h === null || p5h === undefined || p5h <= 0;
+      const isInnerZero = pWk === null || pWk === undefined || pWk <= 0;
+
+      if (focusMode === '5h') {
+        outerRingEl.classList.add('ring-focused');
+        outerRingEl.classList.remove('ring-dimmed');
+        innerRingEl.classList.add('ring-dimmed');
+        innerRingEl.classList.remove('ring-focused');
+      } else {
+        innerRingEl.classList.add('ring-focused');
+        innerRingEl.classList.remove('ring-dimmed');
+        outerRingEl.classList.add('ring-dimmed');
+        outerRingEl.classList.remove('ring-focused');
+      }
+
+      if (isOuterZero) {
+        outerRingEl.style.opacity = '0';
+      } else {
+        outerRingEl.style.opacity = focusMode === '5h' ? '1' : '0.32';
+      }
+
+      if (isInnerZero) {
+        innerRingEl.style.opacity = '0';
+      } else {
+        innerRingEl.style.opacity = focusMode === 'wk' ? '1' : '0.32';
+      }
+
+      outerRingEl.classList.toggle('ring-critical-glow', outerPalette.isCritical && !isOuterZero);
+
+      // 3. 中心区域
+      centerIconEl.innerHTML = getCenterFocusIconHTML(focusMode);
+      centerPctEl.textContent = focusMode === '5h' ? data.fiveHour.percentText : data.weekly.percentText;
+      centerPctEl.className = `ring-center-val font-mono-num text-[22px] font-extrabold tracking-tight leading-none ${activePalette.textClass}`;
+
+      if (focusMode === '5h') {
+        dot5hEl.className = `w-2 h-1.5 rounded-full ${outerPalette.dotBg} transition-all`;
+        dotWkEl.className = `w-1 h-1 rounded-full bg-white/20 transition-all`;
+      } else {
+        dot5hEl.className = `w-1 h-1 rounded-full bg-white/20 transition-all`;
+        dotWkEl.className = `w-2 h-1.5 rounded-full ${innerPalette.dotBg} transition-all`;
+      }
+
+      // 4. USD 与倒计时
+      const activeWindow = focusMode === '5h' ? data.fiveHour : data.weekly;
+      const activeResetText = activeWindow.resetLeft;
+      resetTag.textContent = `⟳ ${activeResetText}`;
+      if (miniResetTag) miniResetTag.textContent = activeResetText;
+
+      // 独立覆盖信息切换按钮
+      if (coverageInfoEl) {
+        if (activeWindow.coverageInfo) {
+          coverageInfoEl.classList.remove('hidden');
+          coverageInfoEl.title = activeWindow.coverageInfo;
+          coverageInfoEl.setAttribute('aria-label', `覆盖说明: ${activeWindow.coverageInfo}`);
+          coverageInfoEl.onclick = () => {
+            activeCoverageProvider = prefix;
+            openCoverageDetail(`${data.name} (${focusMode}): ${activeWindow.coverageInfo}`);
+          };
+          // 若当前该列详情正打开着，实时同步最新文本
+          if (activeCoverageProvider === prefix) {
+            openCoverageDetail(`${data.name} (${focusMode}): ${activeWindow.coverageInfo}`);
+          }
+        } else {
+          coverageInfoEl.classList.add('hidden');
+          coverageInfoEl.title = '';
+          coverageInfoEl.removeAttribute('aria-label');
+          coverageInfoEl.onclick = null;
+          if (activeCoverageProvider === prefix) {
+            closeCoverageDetail();
+          }
+        }
+      }
+
+      quotaBox.style.borderColor = activePalette.borderColor;
+      remainEl.textContent = data.fiveHour.usd;
+      totalEl.textContent = data.weekly.usd;
+
+      remainEl.className = `quota-usd-val text-xs sm:text-[13px] font-bold ${outerPalette.textClass}`;
+      totalEl.className = `quota-usd-val text-xs sm:text-[12px] font-semibold ${focusMode === 'wk' ? innerPalette.textClass : 'text-zinc-300'}`;
+
+      btn5h.className = `quota-usd-btn flex items-center gap-1 rounded px-1 -ml-1 py-0.5 transition ${focusMode === '5h' ? 'bg-white/10' : 'opacity-75 hover:opacity-100'}`;
+      btnWk.className = `quota-usd-btn flex items-center gap-1 rounded px-1 -mr-1 py-0.5 transition ${focusMode === 'wk' ? 'bg-white/10' : 'opacity-75 hover:opacity-100'}`;
+
+      // 5. 底部与紧凑栏统计
+      reqRateEl.textContent = data.successRate;
+      if (data.successRate !== '—') {
+        reqRateEl.className = 'font-mono-num font-bold text-emerald-400';
+      } else {
+        reqRateEl.className = 'font-mono-num font-bold text-zinc-400';
+      }
+      reqTotalEl.textContent = data.requestsTotal;
+      reqOkEl.textContent = data.requestsOk;
+      reqErrEl.textContent = data.requestsErr;
+      tokensEl.textContent = data.cumulativeTokens;
+      tokenHealthEl.textContent = data.cacheHitRate;
+      if (data.cacheHitRate !== '—') {
+        tokenHealthEl.className = 'text-[10px] text-emerald-400 ml-1';
+      } else {
+        tokenHealthEl.className = 'text-[10px] text-zinc-400 ml-1';
+      }
+      wkLeftEl.textContent = data.weekly.resetLeft;
+      wkDateEl.textContent = data.weekly.resetAt;
+
+      if (compactTotalEl) compactTotalEl.textContent = data.requestsTotal;
+      if (compactRateEl) compactRateEl.textContent = `(${data.successRate})`;
+      if (compactTokensEl) compactTokensEl.textContent = data.cumulativeTokens;
+
+      return activePalette.glow;
+    }
+
+    // 打开/关闭独立覆盖说明
+    function openCoverageDetail(text) {
+      const box = document.getElementById('coverage-detail-box');
+      const boxText = document.getElementById('coverage-detail-text');
+      box.classList.remove('hidden');
+      boxText.textContent = text;
+    }
+    function closeCoverageDetail() {
+      activeCoverageProvider = null;
+      document.getElementById('coverage-detail-box')?.classList.add('hidden');
+    }
+
+    document.getElementById('btn-close-coverage')?.addEventListener('click', closeCoverageDetail);
+
+    // 渲染整体状态条
+    function renderStatus() {
+      const dot = document.getElementById('status-dot');
+      const banner = document.getElementById('status-banner');
+      const bannerText = document.getElementById('status-banner-text');
+      const bannerTime = document.getElementById('status-banner-time');
+
+      const state = currentStatus.state;
+      const msg = currentStatus.message || '';
+      const lastSuccess = currentStatus.lastSuccessAt
+        ? new Date(currentStatus.lastSuccessAt).toLocaleTimeString('zh-CN', { hour12: false })
+        : '';
+
+      if (state === 'ok') {
+        dot.className = 'w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399] transition-colors';
+        dot.title = '额度同步正常';
+        banner.className = 'hidden';
+      } else if (state === 'loading') {
+        dot.className = 'w-2 h-2 rounded-full bg-cyan-400 animate-ping transition-colors';
+        dot.title = '正在获取最新额度...';
+        banner.className = 'hidden';
+      } else if (state === 'unauthorized') {
+        dot.className = 'w-2 h-2 rounded-full bg-rose-500 shadow-[0_0_8px_#f43f5e] transition-colors';
+        dot.title = '只读密钥未授权 (401)';
+        banner.className = 'mb-3 px-3 py-1.5 rounded-xl text-xs flex items-center justify-between border bg-rose-950/60 border-rose-500/30 text-rose-300';
+        bannerText.textContent = msg || '额度接口鉴权失败，请检查宿主配置的只读密钥';
+        bannerTime.textContent = lastSuccess ? `上次成功: ${lastSuccess}` : '';
+      } else if (state === 'error') {
+        dot.className = 'w-2 h-2 rounded-full bg-amber-400 shadow-[0_0_8px_#f59e0b] transition-colors';
+        dot.title = '连接 Keeper 异常';
+        banner.className = 'mb-3 px-3 py-1.5 rounded-xl text-xs flex items-center justify-between border bg-amber-950/50 border-amber-500/30 text-amber-300';
+        bannerText.textContent = msg || '额度同步失败，已保留上次成功数据';
+        bannerTime.textContent = lastSuccess ? `上次成功: ${lastSuccess}` : '';
+      } else if (state === 'stopped') {
+        dot.className = 'w-2 h-2 rounded-full bg-zinc-600 transition-colors';
+        dot.title = '已暂停更新';
+        banner.className = 'hidden';
+      }
+    }
+
+    // 全量渲染
+    function renderAll() {
+      const leftGlow = renderColumn('codex', currentModel.codex, ringFocus.codex, 'Codex / GPT');
+      const rightGlow = renderColumn('ag', currentModel.antigravity, ringFocus.ag, '反重力 · Gemini');
+
+      document.getElementById('glow-left').style.background = leftGlow;
+      document.getElementById('glow-right').style.background = rightGlow;
+
+      const btn5h = document.getElementById('focus-btn-5h');
+      const btnWk = document.getElementById('focus-btn-wk');
+      const bothWk = ringFocus.codex === 'wk' && ringFocus.ag === 'wk';
+      if (!bothWk) {
+        btn5h.className = 'flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-white/15 text-white transition';
+        btnWk.className = 'flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold text-zinc-400 hover:text-white transition';
+      } else {
+        btnWk.className = 'flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-white/15 text-white transition';
+        btn5h.className = 'flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold text-zinc-400 hover:text-white transition';
+      }
+
+      renderStatus();
+    }
+
+    // 定时器：每秒更新倒计时（本地时钟滴答，不编造容量，时间一到归零）
+    setInterval(() => {
+      let changed = false;
+      const now = Date.now();
+      ['codex', 'antigravity'].forEach((provider) => {
+        const item = currentModel[provider];
+        if (item) {
+          if (item.fiveHour.nextResetAt) {
+            const next5h = formatResetCountdown(item.fiveHour.nextResetAt, now);
+            if (next5h !== item.fiveHour.resetLeft) {
+              item.fiveHour.resetLeft = next5h;
+              changed = true;
+            }
+          }
+          if (item.weekly.nextResetAt) {
+            const nextWk = formatResetCountdown(item.weekly.nextResetAt, now);
+            if (nextWk !== item.weekly.resetLeft) {
+              item.weekly.resetLeft = nextWk;
+              changed = true;
+            }
+          }
+        }
+      });
+      if (changed) {
+        renderAll();
+      }
+    }, 1000);
+
+    // 暴露宿主接口：更新完整 SummaryResponse
+    window.updateAccountQuota = function(summary) {
+      isMockMode = false;
+      currentModel = adaptSummaryResponse(summary);
+      renderAll();
+    };
+
+    // 暴露宿主接口：更新状态机
+    window.updateAccountQuotaStatus = function(status) {
+      if (!status || typeof status !== 'object') return;
+      currentStatus = { ...currentStatus, ...status };
+      renderStatus();
+    };
+
+    // 卡片尺寸切换
+    function setCardSize(mode) {
+      const card = document.getElementById('AccountQuotaCard');
+      card.classList.remove('mode-standard', 'mode-compact', 'mode-mini');
+      card.classList.add(`mode-${mode}`);
+
+      ['standard', 'compact', 'mini'].forEach((m) => {
+        const btn = document.getElementById(`btn-size-${m}`);
+        if (!btn) return;
+        if (m === mode) {
+          btn.className = 'px-3 py-1.5 rounded-lg text-xs font-medium bg-white/15 text-white transition';
+        } else {
+          btn.className = 'px-3 py-1.5 rounded-lg text-xs font-medium text-zinc-400 hover:text-white transition';
+        }
+      });
+    }
+
+    // 交互事件绑定
+    function toggleFocus(provider) {
+      ringFocus[provider] = ringFocus[provider] === '5h' ? 'wk' : '5h';
+      renderAll();
+    }
+    function setFocus(provider, mode) {
+      ringFocus[provider] = mode;
+      renderAll();
+    }
+    function setGlobalFocus(mode) {
+      ringFocus.codex = mode;
+      ringFocus.ag = mode;
+      renderAll();
+    }
+
+    // 键盘切换焦点支持
+    function bindKeyboardToggle(elId, provider) {
+      const el = document.getElementById(elId);
+      if (!el) return;
+      el.addEventListener('click', () => toggleFocus(provider));
+      el.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          toggleFocus(provider);
+        }
+      });
+    }
+
+    bindKeyboardToggle('codex-ring-wrapper', 'codex');
+    bindKeyboardToggle('ag-ring-wrapper', 'ag');
+
+    document.getElementById('focus-btn-5h').addEventListener('click', () => setGlobalFocus('5h'));
+    document.getElementById('focus-btn-wk').addEventListener('click', () => setGlobalFocus('wk'));
+
+    document.getElementById('codex-usd-5h-btn').addEventListener('click', () => setFocus('codex', '5h'));
+    document.getElementById('codex-usd-wk-btn').addEventListener('click', () => setFocus('codex', 'wk'));
+    document.getElementById('ag-usd-5h-btn').addEventListener('click', () => setFocus('ag', '5h'));
+    document.getElementById('ag-usd-wk-btn').addEventListener('click', () => setFocus('ag', 'wk'));
+
+    ['standard', 'compact', 'mini'].forEach((m) => {
+      const btn = document.getElementById(`btn-size-${m}`);
+      if (btn) btn.addEventListener('click', () => setCardSize(m));
+    });
+
+    // 模拟数据预设（仅供 ?demo=1 测试调试使用）
+    function applyMockPreset(c5h, cWk, a5h, aWk, cUsd5, cUsdWk, aUsd5, aUsdWk) {
+      isMockMode = true;
+      currentModel = {
+        codex: {
+          name: 'Codex / GPT',
+          badge: 'Team ×3',
+          requestsTotal: '10.42K',
+          requestsOk: '10.17K',
+          requestsErr: '249',
+          successRate: '97.60%',
+          cumulativeTokens: '1.34B',
+          cacheHitRate: '94.85%',
+          fiveHour: {
+            percent: c5h,
+            percentText: c5h !== null ? `${c5h}%` : '—',
+            usd: cUsd5,
+            resetLeft: '32m',
+            resetAt: '10/24 15:55',
+            nextResetAt: new Date(Date.now() + 32 * 60000).toISOString(),
+            coverageInfo: '覆盖凭证: 3/3',
+            hasPartialCoverage: false,
+          },
+          weekly: {
+            percent: cWk,
+            percentText: cWk !== null ? `${cWk}%` : '—',
+            usd: cUsdWk,
+            resetLeft: '6d14h',
+            resetAt: '10/31 05:50',
+            nextResetAt: new Date(Date.now() + (6 * 24 + 14) * 3600000).toISOString(),
+            coverageInfo: '覆盖凭证: 3/3',
+            hasPartialCoverage: false,
+          },
+        },
+        antigravity: {
+          name: '反重力 · Gemini',
+          badge: 'Pro ×3',
+          requestsTotal: '20.90K',
+          requestsOk: '20.03K',
+          requestsErr: '870',
+          successRate: '95.84%',
+          cumulativeTokens: '945.74M',
+          cacheHitRate: '74.50%',
+          fiveHour: {
+            percent: a5h,
+            percentText: a5h !== null ? `${a5h}%` : '—',
+            usd: aUsd5,
+            resetLeft: '4h16m',
+            resetAt: '10/24 19:39',
+            nextResetAt: new Date(Date.now() + (4 * 60 + 16) * 60000).toISOString(),
+            coverageInfo: '覆盖凭证: 3/3',
+            hasPartialCoverage: false,
+          },
+          weekly: {
+            percent: aWk,
+            percentText: aWk !== null ? `${aWk}%` : '—',
+            usd: aUsdWk,
+            resetLeft: '6d4h',
+            resetAt: '10/30 19:50',
+            nextResetAt: new Date(Date.now() + (6 * 24 + 4) * 3600000).toISOString(),
+            coverageInfo: '覆盖凭证: 3/3',
+            hasPartialCoverage: false,
+          },
+        },
+        generatedAt: new Date().toISOString(),
+        eligible: 6,
+        pending: 0,
+      };
+
+      currentStatus = { state: 'ok' };
+      renderAll();
+
+      if (isDemoParam) {
+        syncSliders(c5h, cWk, a5h, aWk);
+      }
+    }
+
+    function syncSliders(c5h, cWk, a5h, aWk) {
+      const sC5 = document.getElementById('slider-codex-5h');
+      const sCW = document.getElementById('slider-codex-wk');
+      const sA5 = document.getElementById('slider-ag-5h');
+      const sAW = document.getElementById('slider-ag-wk');
+      if (!sC5) return;
+      sC5.value = c5h ?? 0;
+      sCW.value = cWk ?? 0;
+      sA5.value = a5h ?? 0;
+      sAW.value = aWk ?? 0;
+
+      const updateLabel = (id, val) => {
+        const el = document.getElementById(id);
+        const pal = getAppleRingPalette(val);
+        el.textContent = `${val}%`;
+        el.className = `font-mono-num text-xs font-bold w-10 text-right ${pal.textClass}`;
+      };
+      updateLabel('label-codex-5h', c5h ?? 0);
+      updateLabel('label-codex-wk', cWk ?? 0);
+      updateLabel('label-ag-5h', a5h ?? 0);
+      updateLabel('label-ag-wk', aWk ?? 0);
+    }
+
+    if (isDemoParam) {
+      document.getElementById('btn-preset-sketch')?.addEventListener('click', () => {
+        applyMockPreset(71, 95, 52, 48, '$8.54', '$10.09', '$6.18', '$29.00');
+      });
+      document.getElementById('btn-preset-keeper')?.addEventListener('click', () => {
+        applyMockPreset(71, 95, 94, 94, '$8.54', '$10.09', '$11.09', '$56.40');
+      });
+      document.getElementById('btn-preset-critical')?.addEventListener('click', () => {
+        applyMockPreset(16, 42, 12, 22, '$1.92', '$4.20', '$1.41', '$6.60');
+      });
+
+      const onSlider = () => {
+        const c5 = Number(document.getElementById('slider-codex-5h').value);
+        const cw = Number(document.getElementById('slider-codex-wk').value);
+        const a5 = Number(document.getElementById('slider-ag-5h').value);
+        const aw = Number(document.getElementById('slider-ag-wk').value);
+        applyMockPreset(c5, cw, a5, aw, `$${(12 * c5 / 100).toFixed(2)}`, `$${(12 * cw / 100).toFixed(2)}`, `$${(11.8 * a5 / 100).toFixed(2)}`, `$${(30 * aw / 100).toFixed(2)}`);
+      };
+
+      document.getElementById('slider-codex-5h')?.addEventListener('input', onSlider);
+      document.getElementById('slider-codex-wk')?.addEventListener('input', onSlider);
+      document.getElementById('slider-ag-5h')?.addEventListener('input', onSlider);
+      document.getElementById('slider-ag-wk')?.addEventListener('input', onSlider);
+    }
+
+    // 初始化尺寸
+    setCardSize(['standard', 'compact', 'mini'].includes(initialMode) ? initialMode : 'standard');
+
+    // 如果处于 demo 模式，默认加载一组手绘预设方便直接预览
+    if (isDemoParam) {
+      applyMockPreset(71, 95, 52, 48, '$8.54', '$10.09', '$6.18', '$29.00');
+    } else {
+      // 默认真实空状态
+      renderAll();
+    }
+  </script>
+</body>
+</html>
