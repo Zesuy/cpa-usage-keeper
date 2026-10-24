@@ -50,6 +50,7 @@ type StatusRouteConfig struct {
 }
 
 type OptionalProviders struct {
+	QuotaSummaryAPIKey string
 	CostReadGate       *service.CostReadGate
 	UsageIdentity      service.UsageIdentityProvider
 	ErrorEvents        service.ErrorEventProvider
@@ -112,7 +113,9 @@ func NewRouter(
 	var credentialPriorityProvider service.CredentialPriorityProvider
 	var requestLogProvider service.RequestLogProvider
 	var statusConfig StatusRouteConfig
+	var summaryAPIKey string
 	if len(optionalProviders) > 0 {
+		summaryAPIKey = optionalProviders[0].QuotaSummaryAPIKey
 		usageIdentityProvider = optionalProviders[0].UsageIdentity
 		costReadGate = optionalProviders[0].CostReadGate
 		errorEventProvider = optionalProviders[0].ErrorEvents
@@ -124,6 +127,7 @@ func NewRouter(
 		requestLogProvider = optionalProviders[0].RequestLogs
 		statusConfig = optionalProviders[0].Status
 	}
+	registerExternalQuotaSummaryRoute(apiV1, quotaProvider, summaryAPIKey, costReadGate, basePath)
 	authHandler.setCPAAPIKeyProvider(cpaAPIKeyProvider)
 	requestLogDownloadTokens := newRequestLogDownloadTokenStore()
 

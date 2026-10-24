@@ -26,17 +26,7 @@ func registerQuotaRoutes(router gin.IRoutes, provider QuotaProvider) {
 		RefreshQuotaSummary(context.Context) (quota.RefreshResponse, error)
 	}
 	router.GET("/quota/summary", func(c *gin.Context) {
-		summary, ok := provider.(summaryProvider)
-		if !ok {
-			writeInternalError(c, "quota summary provider is not configured", nil)
-			return
-		}
-		response, err := summary.GetQuotaSummary(c.Request.Context())
-		if err != nil {
-			writeInternalError(c, "quota summary lookup failed", err)
-			return
-		}
-		c.JSON(http.StatusOK, response)
+		writeQuotaSummary(c, provider)
 	})
 	router.POST("/quota/summary/refresh", func(c *gin.Context) {
 		summary, ok := provider.(summaryProvider)

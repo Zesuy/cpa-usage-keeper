@@ -73,6 +73,8 @@ type Config struct {
 	QuotaRefreshWorkerLimit int
 	// QuotaUpstreamResponsesEnabled 控制是否缓存并返回限额查询的原始上游响应。
 	QuotaUpstreamResponsesEnabled bool
+	// QuotaSummaryAPIKey enables the independent read-only summary endpoint when nonempty.
+	QuotaSummaryAPIKey string
 	// WorkDir 是应用工作目录，数据库、日志和备份默认从这里派生。
 	WorkDir string
 	// SQLitePath 是 SQLite 数据库文件路径。
@@ -303,6 +305,7 @@ func Load(options LoadOptions) (*Config, error) {
 		MetadataSyncInterval:          MetadataSyncIntervalDefault,
 		QuotaRefreshWorkerLimit:       quotaRefreshWorkerLimit,
 		QuotaUpstreamResponsesEnabled: quotaUpstreamResponsesEnabled,
+		QuotaSummaryAPIKey:            strings.TrimSpace(os.Getenv("QUOTA_SUMMARY_API_KEY")),
 		WorkDir:                       workDir,
 		SQLitePath:                    filepath.Join(workDir, workDirDatabaseName),
 		BackupEnabled:                 backupEnabled,
