@@ -370,6 +370,8 @@ func (s *Service) quotaSummaryAt(ctx context.Context, now time.Time) (SummaryRes
 				row.GroupLabel = pool.label
 			}
 			candidates := []summaryCandidate{}
+			resetCandidates := 0
+			var firstPassedReset *time.Time
 			cohorts := make(map[cohortKey][]capacityValue)
 			for _, identity := range identities {
 				if summaryProvider(identity) != pool.provider {
@@ -435,10 +437,11 @@ func (s *Service) quotaSummaryAt(ctx context.Context, now time.Time) (SummaryRes
 					continue
 				}
 				reset, resetOK := summaryResetAt(source, observedAt)
-				if !resetOK || !now.Before(reset) {
-					row.Coverage.Expired++
+				if !resetOK || reset.IsZero() {
+					row.Coverage.Unknown++
 					continue
 				}
+				resetPassed := !now.Before(reset)
 				if now.Sub(observedAt) > SummaryMaxSnapshotAge {
 					row.Coverage.Stale++
 				}
@@ -450,19 +453,36 @@ func (s *Service) quotaSummaryAt(ctx context.Context, now time.Time) (SummaryRes
 					row.Coverage.OldestSnapshotAt = &stamp
 				}
 				fraction, ok := quotaUsedFraction(source)
+				if resetPassed {
+					// Project only the summary display into the new window. Never
+					// persist these inferred zeros or alter the successful snapshot.
+					zeroTokens, zeroCost := int64(0), float64(0)
+					source.WindowUsageTokens, source.WindowUsageCost = &zeroTokens, &zeroCost
+					fraction, ok = 0, true
+					row.Coverage.Expired++
+					resetCandidates++
+					if firstPassedReset == nil || reset.Before(*firstPassedReset) {
+						stamp := reset
+						firstPassedReset = &stamp
+					}
+				}
 				if !ok {
 					row.Coverage.Unknown++
 					continue
 				}
 				// This is the next individual reset among valid participating windows,
 				// not a shared reset for the entire aggregate.
-				if row.Coverage.NextResetAt == nil || reset.Before(*row.Coverage.NextResetAt) {
+				if !resetPassed && (row.Coverage.NextResetAt == nil || reset.Before(*row.Coverage.NextResetAt)) {
 					stamp := reset
 					row.Coverage.NextResetAt = &stamp
 				}
 				candidate := summaryCandidate{row: source, plan: plan, fraction: fraction}
 				if source.WindowUsageEstimateTokens != nil && source.WindowUsageEstimateCost != nil && validCapacity(capacityValue{tokens: *source.WindowUsageEstimateTokens, cost: *source.WindowUsageEstimateCost}) {
-					candidate.capacity = &capacityValue{*source.WindowUsageEstimateTokens, *source.WindowUsageEstimateCost, observedAt, "direct"}
+					estimateSource := "direct"
+					if resetPassed {
+						estimateSource = "historical"
+					}
+					candidate.capacity = &capacityValue{*source.WindowUsageEstimateTokens, *source.WindowUsageEstimateCost, observedAt, estimateSource}
 				} else if old, ok := histories[capacityKey{identity.Identity, pool.provider, pool.key, seconds}]; ok && old.PlanKey == candidate.plan && !old.ObservedAt.After(now) {
 					value := capacityValue{old.Tokens, old.CostUSD, old.ObservedAt, "historical"}
 					if validCapacity(value) {
@@ -546,6 +566,14 @@ func (s *Service) quotaSummaryAt(ctx context.Context, now time.Time) (SummaryRes
 			if row.Coverage.Eligible > 0 {
 				row.UsageState = summaryValueState(row, row.WindowUsageTokens != nil)
 				row.EstimateState = summaryValueState(row, row.WindowUsageEstimateTokens != nil)
+				if resetCandidates > 0 && resetCandidates == len(candidates) {
+					// Every known participating window has reset: show full even
+					// when numeric capacity samples are unavailable, without inventing them.
+					full := float64(1)
+					row.RemainingFraction = &full
+					row.Coverage.NextResetAt = firstPassedReset
+					row.UsageState, row.EstimateState = "reset", "reset"
+				}
 				group.Quota = append(group.Quota, row)
 			}
 		}

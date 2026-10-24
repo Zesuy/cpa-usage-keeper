@@ -69,8 +69,8 @@ func TestSummarySnapshotsSurviveRefreshFailureRestartAndHourlyCadence(t *testing
 		t.Fatal(err)
 	}
 	row = result.Groups[0].Quota[0]
-	if row.UsageState != "reset" || row.EstimateState != "reset" || row.RemainingFraction != nil || row.WindowUsageTokens != nil || row.Coverage.Expired != 1 {
-		t.Fatalf("old 5h data crossed reset: %+v", row)
+	if row.UsageState != "reset" || row.EstimateState != "reset" || row.RemainingFraction == nil || *row.RemainingFraction != 1 || row.WindowUsageTokens == nil || *row.WindowUsageTokens != 0 || row.Coverage.Expired != 1 {
+		t.Fatalf("5h reset did not project full remaining quota: %+v", row)
 	}
 	assertNear(t, result.Groups[0].Quota[1].RemainingFraction, .5)
 	// Neither reads nor peer fills write any new observations.
@@ -127,7 +127,7 @@ func TestSummarySnapshotPartialHeaderKeepsIndependentWindowAndPlan(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Groups[0].Quota[0].UsageState != "reset" || got.Groups[0].Quota[0].Coverage.NextResetAt != nil {
+	if got.Groups[0].Quota[0].UsageState != "reset" || got.Groups[0].Quota[0].Coverage.NextResetAt == nil || !got.Groups[0].Quota[0].Coverage.NextResetAt.Equal(later.Add(10*time.Second)) {
 		t.Fatal("relative reset slid forward after restart")
 	}
 	beforeReset, err := summaryTestService(db).quotaSummaryAt(context.Background(), later.Add(time.Second))

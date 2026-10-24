@@ -250,7 +250,7 @@ describe('QuotaSummaryCard', () => {
     expect(container.textContent).not.toMatch(/-d+m/)
   })
 
-  it.each(['reset', 'pending', 'failed', 'missing', 'missing_usage'] as const)('explains %s without showing obsolete window data', async (state) => {
+  it.each(['pending', 'failed', 'missing', 'missing_usage'] as const)('explains %s without showing obsolete window data', async (state) => {
     const unavailable = structuredClone(data)
     const row = unavailable.groups[0].quota[0]
     delete row.window_usage_tokens
@@ -276,6 +276,68 @@ describe('QuotaSummaryCard', () => {
     expect(container.textContent).toContain(`quota_summary_state_${state}`)
     expect(container.textContent).not.toContain('5.00M')
     expect(container.textContent).toContain('12.00M')
+  })
+
+  it('renders 100% full bar and 0h0m countdown when quota window is reset without waiting note', async () => {
+    vi.setSystemTime(new Date('2026-10-24T20:00:00Z'))
+    const resetData = structuredClone(data)
+    const row = resetData.groups[0].quota[0]
+    row.usage_state = 'reset'
+    row.estimate_state = 'reset'
+    row.remainingFraction = 1
+    row.window_usage_tokens = 0
+    row.window_usage_cost = 0
+    row.window_usage_estimate_tokens = 5_000_000
+    row.window_usage_estimate_cost = 10
+    row.coverage!.next_reset_at = '2026-10-24T18:02:00Z'
+    row.coverage!.expired = 3
+    fetchSummary.mockResolvedValue(resetData)
+    await render()
+
+    expect(container.textContent).not.toContain('quota_summary_state_reset')
+    expect(container.textContent).toContain('100%')
+    expect(container.textContent).toContain('0')
+    expect(container.textContent).toContain('$0.00')
+    expect(container.textContent).not.toContain('1.00M')
+    const countdowns = container.querySelectorAll('.' + quotaStyles.credentialQuotaResetDuration)
+    expect(countdowns[0]?.textContent).toBe('0h0m')
+
+    await act(async () => button('credentials_quota_usage_mode_estimated').click())
+    expect(container.textContent).not.toContain('quota_summary_state_reset')
+    expect(container.textContent).toContain('100%')
+    expect(container.textContent).toContain('5.00M')
+    expect(container.textContent).toContain('$10.00')
+    const estCountdowns = container.querySelectorAll('.' + quotaStyles.credentialQuotaResetDuration)
+    expect(estCountdowns[0]?.textContent).toBe('0h0m')
+  })
+
+  it('renders 100% full bar and zero usage even if reset response lacks capacity estimates or usage', async () => {
+    vi.setSystemTime(new Date('2026-10-24T20:00:00Z'))
+    const resetData = structuredClone(data)
+    const row = resetData.groups[0].quota[0]
+    row.usage_state = 'reset'
+    row.estimate_state = 'reset'
+    delete row.window_usage_tokens
+    delete row.window_usage_cost
+    delete row.window_usage_estimate_tokens
+    delete row.window_usage_estimate_cost
+    delete row.remainingFraction
+    row.coverage!.next_reset_at = '2026-10-24T18:02:00Z'
+    row.coverage!.expired = 3
+    fetchSummary.mockResolvedValue(resetData)
+    await render()
+
+    expect(container.textContent).not.toContain('quota_summary_state_reset')
+    expect(container.textContent).toContain('100%')
+    expect(container.textContent).toContain('0')
+    expect(container.textContent).toContain('$0.00')
+    const countdowns = container.querySelectorAll('.' + quotaStyles.credentialQuotaResetDuration)
+    expect(countdowns[0]?.textContent).toBe('0h0m')
+
+    await act(async () => button('credentials_quota_usage_mode_estimated').click())
+    // 估值模式下若无容量，不编造容量，但也不外露 waiting 文案
+    expect(container.textContent).not.toContain('quota_summary_state_reset')
+    expect(container.textContent).toContain('100%')
   })
 
   it('distinguishes a real zero from insufficient estimate samples', async () => {

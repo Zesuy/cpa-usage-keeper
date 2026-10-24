@@ -244,7 +244,7 @@ func TestSummaryExcludesInvalidCredentialsAndClassifiesStaleSnapshots(t *testing
 		t.Fatal(err)
 	}
 	cov := result.Groups[0].Quota[0].Coverage
-	if result.Eligible != 7 || result.Pending != 1 || cov.Direct != 2 || cov.Stale != 1 || cov.Expired != 2 || cov.Missing != 1 || cov.Failed != 1 || cov.Pending != 1 {
+	if result.Eligible != 7 || result.Pending != 1 || cov.Direct != 2 || cov.Historical != 2 || cov.Stale != 1 || cov.Expired != 2 || cov.Missing != 1 || cov.Failed != 1 || cov.Pending != 1 {
 		t.Fatalf("%+v eligible=%d pending=%d", cov, result.Eligible, result.Pending)
 	}
 }
@@ -537,9 +537,11 @@ func TestSummaryNextResetUsesEarliestValidWindowIndependently(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Groups[0].Quota[0].Coverage.NextResetAt != nil {
-		t.Fatal("empty window kept an obsolete reset time")
+	row := got.Groups[0].Quota[0]
+	if row.Coverage.NextResetAt == nil || !row.Coverage.NextResetAt.Equal(now.Add(-time.Minute)) || row.UsageState != "reset" {
+		t.Fatal("reset window must keep its passed reset for the zero countdown")
 	}
+	assertNear(t, row.RemainingFraction, 1)
 }
 
 func TestSummaryCountsMixedPlansOncePerEligibleCredential(t *testing.T) {

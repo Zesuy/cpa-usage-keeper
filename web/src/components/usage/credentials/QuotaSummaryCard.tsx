@@ -252,8 +252,8 @@ function QuotaSummaryWindowBar({
   const details = t('usage_stats.quota_summary_details', { retained: 0, expired: 0, ...coverage })
   const filledCount = coverage.historical + coverage.peer
   const oldestEstimateAt = coverage.oldest_estimate_at
-  const isUnknown = mode === 'estimated' ? !display.windowUsageEstimate : !display.windowUsage
   const state = mode === 'estimated' ? row.estimate_state : row.usage_state
+  const isUnknown = state !== 'reset' && (mode === 'estimated' ? !display.windowUsageEstimate : !display.windowUsage)
 
   const snapshotAt = coverage.oldest_snapshot_at
   const snapshotLabel = snapshotAt ? formatQuotaResetLabel(snapshotAt, timeZone) || new Date(snapshotAt).toLocaleString() : ''

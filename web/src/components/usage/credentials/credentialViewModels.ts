@@ -268,6 +268,12 @@ function quotaWindowUsage(row: UsageQuotaRow): QuotaWindowUsageDisplay | undefin
   const tokens = finiteNumber(row.window_usage_tokens)
   const cost = finiteNumber(row.window_usage_cost)
   if (tokens === undefined || cost === undefined) {
+    if (row.coverage && (row.usage_state === 'reset' || row.estimate_state === 'reset')) {
+      return {
+        tokens: formatCompactTokenValue(0),
+        cost: formatQuotaWindowCost(0),
+      }
+    }
     return undefined
   }
   return {
@@ -393,6 +399,9 @@ function quotaPercent(row: UsageQuotaRow, used?: number, limit?: number): { perc
   const remainingFraction = finiteNumber(row.remainingFraction)
   if (remainingFraction !== undefined) {
     return { percent: clampPercent(remainingFraction * 100), kind: 'remaining' }
+  }
+  if (row.coverage && (row.usage_state === 'reset' || row.estimate_state === 'reset')) {
+    return { percent: 100, kind: 'remaining' }
   }
   if (used !== undefined && limit !== undefined && limit > 0) {
     return { percent: clampPercent((used / limit) * 100), kind: 'used' }
