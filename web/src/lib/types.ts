@@ -547,7 +547,7 @@ export interface QuotaSummaryResponse {
   generated_at: string
   eligible: number
   pending: number
-  groups: { provider: string; pool: string; label: string; quota: UsageQuotaRow[]; stats?: UsageIdentityPeriodStats }[]
+  groups: { provider: string; pool: string; label: string; quota: UsageQuotaRow[]; stats?: UsageIdentityPeriodStats; plans?: { plan: string; count: number }[] }[]
 }
 
 export interface UsageQuotaCheckResponse {

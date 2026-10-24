@@ -47,12 +47,19 @@ type SummaryRow struct {
 	EstimateState string          `json:"estimate_state"`
 }
 
+// SummaryPlanCount counts credential files, independent of quota availability.
+type SummaryPlanCount struct {
+	Plan  string `json:"plan"`
+	Count int    `json:"count"`
+}
+
 type SummaryGroup struct {
-	Provider string            `json:"provider"`
-	Pool     string            `json:"pool"`
-	Label    string            `json:"label"`
-	Quota    []SummaryRow      `json:"quota"`
-	Stats    SummaryUsageStats `json:"stats"`
+	Provider string             `json:"provider"`
+	Pool     string             `json:"pool"`
+	Label    string             `json:"label"`
+	Quota    []SummaryRow       `json:"quota"`
+	Stats    SummaryUsageStats  `json:"stats"`
+	Plans    []SummaryPlanCount `json:"plans"`
 }
 
 // SummaryUsageStats sums the same reset-adjusted counters as the credential list.
@@ -126,6 +133,54 @@ func summaryPlan(identity entities.UsageIdentity, response *CheckResponse) strin
 		}
 	}
 	return ""
+}
+
+// Display plans use the same canonical values as individual subscription badges.
+// Saved quota snapshots retain plan identity even when no refresh task survives.
+func summaryDisplayPlan(identity entities.UsageIdentity, task RefreshTaskRecord, snapshots map[capacityKey]entities.QuotaSummarySnapshot, now time.Time) string {
+	provider := summaryProvider(identity)
+	if task.Status == RefreshTaskStatusCompleted && normalizeIdentityType(task.Type) == provider && task.Quota != nil && task.Quota.Subscription != nil {
+		subscription := task.Quota.Subscription
+		if normalizeIdentityType(subscription.Provider) == provider {
+			if plan := strings.ToLower(strings.TrimSpace(subscription.Plan)); plan != "" && plan != "unknown" {
+				if provider == "codex" {
+					return strings.ToLower(newCodexSubscription(plan).Plan)
+				}
+				return plan
+			}
+		}
+	}
+	if provider == "codex" {
+		if subscription := ResolveIdentitySubscription(identity); subscription != nil {
+			return strings.ToLower(subscription.Plan)
+		}
+	}
+	var newest entities.QuotaSummarySnapshot
+	for key, snapshot := range snapshots {
+		if key.auth != identity.Identity || key.provider != provider || snapshot.Payload == "" || snapshot.ObservedAt.After(now) {
+			continue
+		}
+		if known := summaryPlan(identity, nil); known != "" && known != snapshot.IdentityPlanKey {
+			continue
+		}
+		if snapshot.ObservedAt.After(newest.ObservedAt) || (snapshot.ObservedAt.Equal(newest.ObservedAt) && snapshot.PlanKey < newest.PlanKey) {
+			newest = snapshot
+		}
+	}
+	kind, value, _ := strings.Cut(newest.PlanKey, ":")
+	if kind == "plan" && value != "" {
+		if provider == "codex" {
+			return strings.ToLower(newCodexSubscription(value).Plan)
+		}
+		return value
+	}
+	if kind == "tier" && provider == "antigravity" {
+		subscription := resolveAntigravitySubscription(AntigravityResult{Subscription: &AntigravitySubscriptionPayload{CurrentTier: &GeminiCliUserTier{ID: value}}})
+		if subscription != nil {
+			return subscription.Plan
+		}
+	}
+	return "unknown"
 }
 
 func (s *Service) listSummaryCredentials(ctx context.Context, now time.Time) ([]entities.UsageIdentity, error) {
@@ -277,15 +332,32 @@ func (s *Service) quotaSummaryAt(ctx context.Context, now time.Time) (SummaryRes
 			response.Pending++
 		}
 	}
+	snapshotsByAuth := make(map[string]map[capacityKey]entities.QuotaSummarySnapshot)
+	for key, snapshot := range snapshots {
+		if snapshotsByAuth[key.auth] == nil {
+			snapshotsByAuth[key.auth] = make(map[capacityKey]entities.QuotaSummarySnapshot)
+		}
+		snapshotsByAuth[key.auth][key] = snapshot
+	}
+	plans := make(map[string]string, len(identities))
+	for _, identity := range identities {
+		plans[identity.Identity] = summaryDisplayPlan(identity, tasks[identity.Identity], snapshotsByAuth[identity.Identity], now)
+	}
 	for _, pool := range summaryPools {
-		group := SummaryGroup{Provider: pool.provider, Pool: pool.key, Label: pool.label, Quota: []SummaryRow{}}
+		group := SummaryGroup{Provider: pool.provider, Pool: pool.key, Label: pool.label, Quota: []SummaryRow{}, Plans: []SummaryPlanCount{}}
+		planCounts := make(map[string]int)
 		for _, identity := range identities {
 			if summaryProvider(identity) == pool.provider {
+				planCounts[plans[identity.Identity]]++
 				if err := group.Stats.add(identity); err != nil {
 					return response, err
 				}
 			}
 		}
+		for plan, count := range planCounts {
+			group.Plans = append(group.Plans, SummaryPlanCount{Plan: plan, Count: count})
+		}
+		sort.Slice(group.Plans, func(i, j int) bool { return group.Plans[i].Plan < group.Plans[j].Plan })
 		for _, seconds := range []int64{quotaWindowFiveHourSeconds, quotaWindowSevenDaySeconds} {
 			label := "5h"
 			if seconds == quotaWindowSevenDaySeconds {

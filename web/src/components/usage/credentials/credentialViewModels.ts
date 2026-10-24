@@ -234,7 +234,7 @@ export function toDisplayQuota(row: UsageQuotaRow): DisplayQuota | undefined {
     used,
     limit,
     remaining,
-    resetText: row.resetAt,
+    resetText: row.resetAt ?? row.coverage?.next_reset_at,
     windowSeconds,
     windowUsage: quotaWindowUsage(row),
     windowUsageEstimate: quotaWindowUsageEstimate(row),

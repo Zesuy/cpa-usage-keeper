@@ -35,4 +35,32 @@ describe('CredentialSubscriptionBadge', () => {
     }))
     expect(html.replace(/<[^>]+>/g, '')).toBe('Team')
   })
+
+  it('renders count suffix when count is greater than 1', async () => {
+    await i18n.changeLanguage('en')
+    const html = renderToStaticMarkup(createElement(CredentialSubscriptionBadge, {
+      model: { kind: 'codex-team', labelKey: 'usage_stats.credentials_subscription_codex_team' },
+      count: 3,
+    }))
+    expect(html).toContain('Team')
+    expect(html).toContain('×3')
+  })
+
+  it('renders explicit count suffix for count 1', async () => {
+    await i18n.changeLanguage('en')
+    const html = renderToStaticMarkup(createElement(CredentialSubscriptionBadge, {
+      model: { kind: 'codex-team', labelKey: 'usage_stats.credentials_subscription_codex_team' },
+      count: 1,
+    }))
+    expect(html).toContain('Team')
+    expect(html).toContain('×1')
+  })
+
+  it('omits count suffix when count is undefined', async () => {
+    await i18n.changeLanguage('en')
+    const html = renderToStaticMarkup(createElement(CredentialSubscriptionBadge, {
+      model: { kind: 'codex-team', labelKey: 'usage_stats.credentials_subscription_codex_team' },
+    }))
+    expect(html.replace(/<[^>]+>/g, '')).toBe('Team')
+  })
 })

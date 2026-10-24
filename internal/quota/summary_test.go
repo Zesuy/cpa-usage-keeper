@@ -541,3 +541,82 @@ func TestSummaryNextResetUsesEarliestValidWindowIndependently(t *testing.T) {
 		t.Fatal("empty window kept an obsolete reset time")
 	}
 }
+
+func TestSummaryCountsMixedPlansOncePerEligibleCredential(t *testing.T) {
+	db := summaryTestDB(t)
+	s := summaryTestService(db)
+	now := time.Now().Truncate(time.Second)
+	for i, plan := range []string{" TEAM ", "team", "plus", "pro", "prolite", "", "future-plan"} {
+		id := summaryTestIdentity(t, db, fmt.Sprintf("codex-%d", i), "codex", plan)
+		// Even expired or unavailable quotas still have a participating credential.
+		if i == 0 {
+			summaryTestCache(s, id, []QuotaRow{summaryTestRow(18000, 25, 100, 1, now.Add(-2*time.Hour))}, now.Add(-2*time.Hour))
+		}
+	}
+	for _, name := range []string{"disabled", "deleted", "expired", "future"} {
+		id := summaryTestIdentity(t, db, name, "codex", "team")
+		updates := map[string]any{}
+		switch name {
+		case "disabled":
+			updates["disabled"] = true
+		case "deleted":
+			updates["is_deleted"] = true
+		case "expired":
+			updates["active_until"] = now.Add(-time.Hour).Format(time.RFC3339Nano)
+		case "future":
+			updates["active_start"] = now.Add(time.Hour).Format(time.RFC3339Nano)
+		}
+		if err := db.Model(&id).Updates(updates).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := s.quotaSummaryAt(context.Background(), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []SummaryPlanCount{{"future-plan", 1}, {"plus", 1}, {"pro-20x", 1}, {"pro-5x", 1}, {"team", 2}, {"unknown", 1}}
+	if len(got.Groups) != 1 || fmt.Sprint(got.Groups[0].Plans) != fmt.Sprint(want) || got.Eligible != 7 {
+		t.Fatalf("unexpected plan counts: %+v", got)
+	}
+	// Successful response subscriptions override fallback identity metadata.
+	id := summaryTestIdentity(t, db, "changed-plan", "codex", "team")
+	summaryTestCache(s, id, []QuotaRow{summaryTestRow(18000, 25, 100, 1, now)}, now)
+	s.refreshTasks[id.Identity].Quota.Subscription.Plan = "plus"
+	got, err = s.quotaSummaryAt(context.Background(), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Groups[0].Plans[1] != (SummaryPlanCount{"plus", 2}) {
+		t.Fatal("current subscription was not used for display")
+	}
+}
+
+func TestSummaryPlanCountsRestoreAntigravityTierAndStaySeparateFromCodex(t *testing.T) {
+	db := summaryTestDB(t)
+	s := summaryTestService(db)
+	now := time.Now().Truncate(time.Second)
+	summaryTestIdentity(t, db, "codex", "codex", "team")
+	for i, tier := range []string{"g1-pro-tier", "g1-ultra-tier", "future-tier"} {
+		id := summaryTestIdentity(t, db, fmt.Sprintf("ag-%d", i), "antigravity", "")
+		for _, pool := range []string{antigravityGeminiGroupKey, antigravityClaudeGPTGroupKey} {
+			row := summaryTestRow(18000, 25, 100, 1, now)
+			row.Scope, row.GroupKey = "quota_group", pool
+			response := withWindowUsageEstimates(CheckResponse{Quota: []QuotaRow{row}, Subscription: &SubscriptionInfo{Provider: "antigravity", Plan: "unknown", TierID: tier}})
+			s.rememberSummarySnapshot(id.Identity, id.Type, response, now, false)
+		}
+	}
+	// Counts restore from saved plan metadata without a provider request or tasks.
+	got, err := summaryTestService(db).quotaSummaryAt(context.Background(), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Groups) != 3 || fmt.Sprint(got.Groups[0].Plans) != fmt.Sprint([]SummaryPlanCount{{"team", 1}}) {
+		t.Fatalf("provider plans mixed: %+v", got)
+	}
+	want := []SummaryPlanCount{{"pro", 1}, {"ultra", 1}, {"unknown", 1}}
+	for _, group := range got.Groups[1:] {
+		if fmt.Sprint(group.Plans) != fmt.Sprint(want) {
+			t.Fatalf("saved tiers not counted once: %+v", group.Plans)
+		}
+	}
+}

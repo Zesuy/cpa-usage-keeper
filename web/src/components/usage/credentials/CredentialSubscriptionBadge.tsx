@@ -28,13 +28,20 @@ const BADGE_PRESENTATIONS: Record<SubscriptionBadgeKind, BadgePresentation> = {
   'antigravity-unknown': { className: styles.credentialPlanBadgeNeutral, hasPremiumMotion: false },
 }
 
-export function CredentialSubscriptionBadge({ model }: { model: SubscriptionBadgeModel }) {
+export function CredentialSubscriptionBadge({
+  model,
+  count,
+}: {
+  model: SubscriptionBadgeModel
+  count?: number
+}) {
   const { t } = useTranslation()
   const presentation = BADGE_PRESENTATIONS[model.kind]
-  const label = model.labelKey ? t(model.labelKey) : model.fallbackLabel
-  if (!label) {
+  const baseLabel = model.labelKey ? t(model.labelKey) : model.fallbackLabel
+  if (!baseLabel) {
     return null
   }
+  const label = count !== undefined ? `${baseLabel} ×${count}` : baseLabel
 
   return (
     <span className={`${styles.credentialPlanBadge} ${presentation.className}`.trim()}>

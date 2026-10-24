@@ -23,6 +23,8 @@ import {
   formatCredentialNumber,
   successRateTone,
 } from './CredentialSectionShell'
+import { CredentialSubscriptionBadge } from './CredentialSubscriptionBadge'
+import { resolveCredentialSubscriptionBadge } from './credentialSubscription'
 import { antigravityQuotaGroup } from './antigravityQuotaGroups'
 import { toDisplayQuota } from './credentialViewModels'
 import styles from './QuotaSummaryCard.module.scss'
@@ -184,6 +186,25 @@ function QuotaSummaryGroupRow({
     </div>
   )
 
+  const badges = group.plans && group.plans.length > 0 ? (
+    <>
+      {group.plans.map(({ plan, count }) => {
+        const badgeModel = resolveCredentialSubscriptionBadge({
+          provider: group.provider,
+          plan,
+        })
+        if (!badgeModel) return null
+        return (
+          <CredentialSubscriptionBadge
+            key={plan}
+            model={badgeModel}
+            count={count}
+          />
+        )
+      })}
+    </>
+  ) : null
+
   return (
     <CredentialRowShell
       icon={(
@@ -192,7 +213,7 @@ function QuotaSummaryGroupRow({
         </div>
       )}
       title={<span className={styles.groupTitle} title={group.label}>{group.label}</span>}
-      badges={null}
+      badges={badges}
       metrics={metrics}
       metricsTitle={metricsTitle}
       side={side}
@@ -233,9 +254,7 @@ function QuotaSummaryWindowBar({
   const oldestEstimateAt = coverage.oldest_estimate_at
   const isUnknown = mode === 'estimated' ? !display.windowUsageEstimate : !display.windowUsage
   const state = mode === 'estimated' ? row.estimate_state : row.usage_state
-  const nextResetAt = coverage.next_reset_at
-  const nextResetLabel = nextResetAt ? formatQuotaResetLabel(nextResetAt, timeZone) : ''
-  const nextResetTitle = t('usage_stats.quota_summary_next_reset', { date: nextResetLabel })
+
   const snapshotAt = coverage.oldest_snapshot_at
   const snapshotLabel = snapshotAt ? formatQuotaResetLabel(snapshotAt, timeZone) || new Date(snapshotAt).toLocaleString() : ''
   const snapshotTitle = snapshotAt ? t('usage_stats.quota_summary_snapshot_date', { date: snapshotLabel }) : ''
@@ -243,22 +262,22 @@ function QuotaSummaryWindowBar({
     ? `usage_stats.quota_summary_state_${state}`
     : mode === 'estimated' ? 'usage_stats.quota_summary_unknown' : 'usage_stats.quota_summary_current_unknown'
 
+  const coverageText = t('usage_stats.quota_summary_coverage', { covered, total: coverage.eligible })
+  const cachedText = state === 'cached' ? t('usage_stats.quota_summary_cached') : ''
+  const filledText = mode === 'estimated' && filledCount > 0 ? t('usage_stats.quota_summary_filled', { count: filledCount }) : ''
+
   const headerExtra = (
     <span className={styles.windowHeaderExtra}>
-      <span className={styles.coverageTag} title={details}>
-        {t('usage_stats.quota_summary_coverage', { covered, total: coverage.eligible })}
-      </span>
-      {state === 'cached' && <span className={styles.coverageTag} title={snapshotTitle}>{t('usage_stats.quota_summary_cached')}</span>}
-      {mode === 'estimated' && filledCount > 0 && (
-        <span className={`${styles.coverageTag} ${styles.filledTag}`}>
-          {t('usage_stats.quota_summary_filled', { count: filledCount })}
-        </span>
-      )}
       <details className={styles.sourcesDetails}>
         <summary tabIndex={0} role="button" aria-haspopup="true" aria-label={t('usage_stats.quota_summary_sources')}>
           <IconInfo size={12} />
         </summary>
         <div className={styles.sourcesPopover} role="tooltip">
+          <div className={styles.sourcesStatusRow}>
+            <span className={styles.coverageTag}>{coverageText}</span>
+            {cachedText && <span className={styles.coverageTag}>{cachedText}</span>}
+            {filledText && <span className={`${styles.coverageTag} ${styles.filledTag}`}>{filledText}</span>}
+          </div>
           <div>{details}</div>
           {snapshotAt && <div className={styles.historyDateText}>{snapshotTitle}</div>}
           {mode === 'estimated' && oldestEstimateAt && (
@@ -281,7 +300,6 @@ function QuotaSummaryWindowBar({
         timeZone={timeZone}
         showGroupMetadata={false}
         headerExtra={headerExtra}
-        metaExtra={nextResetLabel ? <time dateTime={nextResetAt} title={nextResetTitle} className={quotaStyles.credentialQuotaResetTime}>{nextResetLabel}</time> : undefined}
       />
       {isUnknown && (
         <div className={styles.windowMetaNote}>

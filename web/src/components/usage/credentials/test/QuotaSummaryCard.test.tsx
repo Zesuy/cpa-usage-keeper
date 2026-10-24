@@ -7,6 +7,7 @@ import { ApiError } from '@/lib/api'
 import type { QuotaSummaryResponse } from '@/lib/types'
 import { defaultAntigravityQuotaDisplayPreferences, useAntigravityQuotaDisplayStore } from '@/stores/useAntigravityQuotaDisplayStore'
 import { QuotaSummaryCard } from '../QuotaSummaryCard'
+import quotaStyles from '../CredentialSections.module.scss'
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 const fetchSummary = vi.fn()
@@ -27,6 +28,7 @@ const data: QuotaSummaryResponse = {
     provider: 'codex',
     pool: 'codex',
     label: 'Codex / GPT',
+    plans: [{ plan: 'team', count: 3 }],
     stats: {
       total_requests: 98,
       success_count: 52,
@@ -86,10 +88,31 @@ describe('QuotaSummaryCard', () => {
     expect(container.textContent).toContain('5.00M')
     expect(container.textContent).toContain('$10.00')
     expect(container.textContent).toContain('80%')
-    expect(container.textContent).toContain('quota_summary_filled')
     expect(container.querySelectorAll('details').length).toBe(2)
     // Aggregates deliberately have no fictitious common reset countdown.
     expect(container.textContent).not.toContain('NaN')
+  })
+
+  it('renders plan badges with counts when plans are provided, including explicit count 1', async () => {
+    const mixedData = structuredClone(data)
+    mixedData.groups[0].plans = [
+      { plan: 'team', count: 2 },
+      { plan: 'plus', count: 1 },
+      { plan: 'pro-20x', count: 1 },
+    ]
+    fetchSummary.mockResolvedValue(mixedData)
+    await render()
+    expect(container.textContent).toContain('usage_stats.credentials_subscription_codex_team ×2')
+    expect(container.textContent).toContain('usage_stats.credentials_subscription_codex_plus ×1')
+    expect(container.textContent).toContain('usage_stats.credentials_subscription_codex_pro_20x ×1')
+  })
+
+  it('omits plan badges when plans is undefined or empty', async () => {
+    const noPlansData = structuredClone(data)
+    delete noPlansData.groups[0].plans
+    fetchSummary.mockResolvedValue(noPlansData)
+    await render()
+    expect(container.textContent).not.toContain('usage_stats.credentials_subscription_codex_team')
   })
 
   it('renders credential metrics identically to credential rows and handles missing stats gracefully', async () => {
@@ -126,16 +149,26 @@ describe('QuotaSummaryCard', () => {
     expect(container.textContent).toContain('—')
   })
 
-  it('keeps independent coverage statistics and sources for each window bar', async () => {
+  it('keeps independent coverage statistics and sources inside info details for each window bar with info hidden when closed', async () => {
     await render()
-    // 5h 覆盖 3/3，Weekly 覆盖 1/3
-    expect(container.textContent).toContain('"covered":3,"total":3')
-    expect(container.textContent).toContain('"covered":1,"total":3')
-
-    await act(async () => button('credentials_quota_usage_mode_estimated').click())
-    // 检查不同窗口的 details 和格式化后的历史日期都独立存在
     const detailsElements = container.querySelectorAll('details')
     expect(detailsElements.length).toBe(2)
+    // 初始状态下 info 浮层均处于关闭隐藏状态
+    expect(detailsElements[0].open).toBe(false)
+    expect(detailsElements[1].open).toBe(false)
+
+    // 浮层内部持有独立的覆盖率诊断信息
+    expect(detailsElements[0].textContent).toContain('"covered":3,"total":3')
+    expect(detailsElements[1].textContent).toContain('"covered":1,"total":3')
+
+    // 点击切换 open 状态
+    await act(async () => {
+      detailsElements[0].open = true
+    })
+    expect(detailsElements[0].open).toBe(true)
+
+    await act(async () => button('credentials_quota_usage_mode_estimated').click())
+    // 检查不同窗口的 details 和格式化后的历史日期都独立存在于 popover 中
     expect(detailsElements[0].textContent).toContain('10/22 16:00')
     expect(detailsElements[1].textContent).toContain('10/20 18:00')
   })
@@ -151,7 +184,8 @@ describe('QuotaSummaryCard', () => {
     expect(container.textContent).toContain('quota_summary_unknown')
   })
 
-  it.each([0, 2])('shows the next individual reset and retains observation time in source details with %i pending refreshes', async (pending) => {
+  it.each([0, 2])('shows the next individual reset and retains observation time and tags in source details with %i pending refreshes', async (pending) => {
+    vi.setSystemTime(new Date('2026-10-24T16:00:00Z'))
     const cached = structuredClone(data)
     cached.pending = pending
     for (const row of cached.groups[0].quota) {
@@ -169,18 +203,29 @@ describe('QuotaSummaryCard', () => {
     await render()
     expect(container.textContent).toContain('80%')
     expect(container.textContent).toContain('1.00M')
-    expect(container.textContent).toContain('quota_summary_cached')
-    const times = container.querySelectorAll('time')
-    expect([...times].map((item) => item.dateTime)).toEqual(['2026-10-24T18:02:00Z', '2026-10-29T17:08:00Z'])
-    expect([...times].map((item) => item.textContent)).toEqual(['10/25 02:02', '10/30 01:08'])
-    expect(times[0].title).toContain('quota_summary_next_reset')
-    expect(container.querySelector('details')?.textContent).toContain('quota_summary_snapshot_date')
-    expect(container.querySelector('details')?.textContent).toContain('10/23 14:15')
+    // 缓存标记应移入 details popover，外层额度条中不再外露
+    const details = container.querySelector('details')
+    expect(details?.textContent).toContain('quota_summary_cached')
+
+    // 检查复用自 QuotaBar 的重置日期与灰色倒计时
+    const resetDates = container.querySelectorAll('.' + quotaStyles.credentialQuotaResetTime)
+    expect([...resetDates].map((item) => item.textContent)).toEqual(['10/25 02:02', '10/30 01:08'])
+    // 确保底部日期不重复输出（每个出现恰好 1 次）
+    expect((container.textContent?.match(/10\/25 02:02/g) || []).length).toBe(1)
+    expect((container.textContent?.match(/10\/30 01:08/g) || []).length).toBe(1)
+
+    const countdowns = container.querySelectorAll('.' + quotaStyles.credentialQuotaResetDuration)
+    expect([...countdowns].map((item) => item.textContent)).toEqual(['2h2m', '5d1h8m'])
+
+    expect(details?.textContent).toContain('quota_summary_snapshot_date')
+    expect(details?.textContent).toContain('10/23 14:15')
     expect(button(pending ? 'quota_summary_pending' : 'quota_summary_refresh_all').disabled).toBe(Boolean(pending))
     await act(async () => button('credentials_quota_usage_mode_estimated').click())
     expect(container.textContent).toContain('5.00M')
-    expect(container.textContent).toContain('quota_summary_cached')
-    expect(container.querySelector('time')?.dateTime).toBe('2026-10-24T18:02:00Z')
+    const estDates = container.querySelectorAll('.' + quotaStyles.credentialQuotaResetTime)
+    expect(estDates[0]?.textContent).toBe('10/25 02:02')
+    const estCountdowns = container.querySelectorAll('.' + quotaStyles.credentialQuotaResetDuration)
+    expect(estCountdowns[0]?.textContent).toBe('2h2m')
   })
 
   it('leaves the reset-time position empty when no valid next reset is available', async () => {
@@ -188,8 +233,21 @@ describe('QuotaSummaryCard', () => {
     noReset.groups[0].quota[0].coverage!.oldest_snapshot_at = '2026-10-23T06:15:00Z'
     fetchSummary.mockResolvedValue(noReset)
     await render()
-    expect(container.querySelector('time')).toBeNull()
+    expect(container.querySelector('.' + quotaStyles.credentialQuotaResetTime)).toBeNull()
+    expect(container.querySelector('.' + quotaStyles.credentialQuotaResetDuration)).toBeNull()
     expect(container.querySelector('details')?.textContent).toContain('10/23 14:15')
+  })
+
+  it('handles expired reset times without negative numbers', async () => {
+    vi.setSystemTime(new Date('2026-10-24T20:00:00Z'))
+    const expiredData = structuredClone(data)
+    expiredData.groups[0].quota[0].coverage!.next_reset_at = '2026-10-24T18:02:00Z'
+    fetchSummary.mockResolvedValue(expiredData)
+    await render()
+    const countdowns = container.querySelectorAll('.' + quotaStyles.credentialQuotaResetDuration)
+    expect(countdowns[0]?.textContent).toBe('0h0m')
+    expect(container.textContent).not.toMatch(/-d+h/)
+    expect(container.textContent).not.toMatch(/-d+m/)
   })
 
   it.each(['reset', 'pending', 'failed', 'missing', 'missing_usage'] as const)('explains %s without showing obsolete window data', async (state) => {
