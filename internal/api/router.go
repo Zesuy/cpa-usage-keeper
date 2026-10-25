@@ -50,6 +50,7 @@ type StatusRouteConfig struct {
 }
 
 type OptionalProviders struct {
+	MCPAPIKey          string
 	QuotaSummaryAPIKey string
 	CostReadGate       *service.CostReadGate
 	UsageIdentity      service.UsageIdentityProvider
@@ -128,6 +129,11 @@ func NewRouter(
 		statusConfig = optionalProviders[0].Status
 	}
 	registerExternalQuotaSummaryRoute(apiV1, quotaProvider, summaryAPIKey, costReadGate, basePath)
+	mcpKey := ""
+	if len(optionalProviders) > 0 {
+		mcpKey = optionalProviders[0].MCPAPIKey
+	}
+	registerMCPRoute(appGroup, mcpKey, usageProvider, quotaProvider, costReadGate)
 	authHandler.setCPAAPIKeyProvider(cpaAPIKeyProvider)
 	requestLogDownloadTokens := newRequestLogDownloadTokenStore()
 

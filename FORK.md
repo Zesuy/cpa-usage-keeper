@@ -25,6 +25,12 @@ Set `QUOTA_SUMMARY_API_KEY` in the server environment to enable `GET {APP_BASE_P
 
 The [independent panel example](examples/account-quota-panel/README.md) includes the Gemini-designed two-column HTML, server/host-only poller, and integration instructions. The host keeps the key and pushes raw summary data into the panel; the HTML does not fetch Keeper or hold credentials.
 
+## Read-only Bot MCP
+
+Set an independent `MCP_API_KEY` to enable stateless Streamable HTTP at `{APP_BASE_PATH}/mcp`. The three read-only tools return Chinese reports for AI consumption: `get_quota_summary`, `get_key_usage` (default exact alias `bot`), and `get_model_tps` (global active-Key scope). An empty key disables MCP; web login and the external quota API retain their separate permissions. Reads reuse stored fees and quota estimates, never refresh providers, and respect the cost-recalculation read gate. The hourly reader uses a single database snapshot, existing Overview rollups and disjoint raw-event intervals to preserve the exact trailing 24 hours, including aggregation lag. No schema changes or frontend changes are required.
+
+See [Bot MCP integration](examples/bot-mcp/README.md) for configuration, calls, report examples, and statistical definitions.
+
 ## Quota summary
 
 The Usage page aggregates all enabled, active credential files across pages, independently of list filters. It includes Codex/GPT, Antigravity Gemini, and Antigravity Claude/GPT; Argon and special model-specific quotas are excluded. Each pool keeps 5h and Weekly separate. Summary rows also reuse the credential list’s reset-adjusted cumulative request, success/failure, input/cache-read token, and total token counters. Rates are calculated from the summed counters. Antigravity rows share the same participating files, so these cumulative metrics overlap and must not be added across pools; quota capacities remain separate. Each summary group returns canonical subscription plan counts for its enabled, active credential files, independently of window freshness; these reuse the individual credential subscription badges. The current/estimated switch reuses the individual credential display. Antigravity display preferences also apply here.

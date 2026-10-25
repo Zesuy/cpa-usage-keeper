@@ -75,6 +75,8 @@ type Config struct {
 	QuotaUpstreamResponsesEnabled bool
 	// QuotaSummaryAPIKey enables the independent read-only summary endpoint when nonempty.
 	QuotaSummaryAPIKey string
+	// MCPAPIKey enables the independent read-only Bot MCP endpoint when nonempty.
+	MCPAPIKey string
 	// WorkDir 是应用工作目录，数据库、日志和备份默认从这里派生。
 	WorkDir string
 	// SQLitePath 是 SQLite 数据库文件路径。
@@ -306,6 +308,7 @@ func Load(options LoadOptions) (*Config, error) {
 		QuotaRefreshWorkerLimit:       quotaRefreshWorkerLimit,
 		QuotaUpstreamResponsesEnabled: quotaUpstreamResponsesEnabled,
 		QuotaSummaryAPIKey:            strings.TrimSpace(os.Getenv("QUOTA_SUMMARY_API_KEY")),
+		MCPAPIKey:                     strings.TrimSpace(os.Getenv("MCP_API_KEY")),
 		WorkDir:                       workDir,
 		SQLitePath:                    filepath.Join(workDir, workDirDatabaseName),
 		BackupEnabled:                 backupEnabled,

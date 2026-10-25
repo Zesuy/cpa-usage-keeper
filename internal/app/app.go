@@ -270,6 +270,7 @@ func buildReadyApp(cfg config.Config, db, readDB *gorm.DB, logCloser io.Closer, 
 			cfg.AppBasePath,
 			api.OptionalProviders{
 				QuotaSummaryAPIKey: cfg.QuotaSummaryAPIKey,
+				MCPAPIKey:          cfg.MCPAPIKey,
 				UsageIdentity:      usageIdentityService,
 				CostReadGate:       costReadGate,
 				ErrorEvents:        errorEventService,
