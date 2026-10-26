@@ -79,3 +79,18 @@ func TestReportsPreserveSmallCostsAndExactBoundaries(t *testing.T) {
 		t.Fatal("partial-hour boundary lost precision")
 	}
 }
+
+func TestQuotaReportResetCreditCountAndUnknown(t *testing.T) {
+	credits := &quota.SummaryResetCredits{AvailableCount: new(int64(0)), Known: 1, Eligible: 2}
+	summary := quota.SummaryResponse{Groups: []quota.SummaryGroup{{Pool: "codex", ResetCredits: credits}}}
+	text := Quota(summary, time.Now())
+	for _, want := range []string{"RST重置卡缓存可用数量：0", "凭据覆盖1/2", "数量减少不代表使用", "部分覆盖时仅为已知部分合计"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("missing %q: %s", want, text)
+		}
+	}
+	credits.AvailableCount, credits.Known = nil, 0
+	if text = Quota(summary, time.Now()); !strings.Contains(text, "RST重置卡缓存可用数量：未知") {
+		t.Fatal(text)
+	}
+}

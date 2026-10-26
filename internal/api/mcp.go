@@ -157,7 +157,7 @@ func registerMCPRoute(group *gin.RouterGroup, key string, usage service.UsagePro
 			})
 		})
 	poolIDs := []string{"codex", "antigravity-gemini-models", "antigravity-claude-gpt-models"}
-	mcp.AddTool(server, mcpTool("get_quota_summary", "查看当前全部有效供应侧凭据池的聚合额度：5小时/周已用与剩余比例、预估剩余Token/USD、最近重置及覆盖情况。这是凭据池额度，不属于某个客户端Key。只读现有结果，不触发刷新。", map[string]any{
+	mcp.AddTool(server, mcpTool("get_quota_summary", "查看当前全部有效供应侧凭据池的聚合额度：5小时/周已用与剩余比例、预估剩余Token/USD、最近重置及覆盖情况；Codex还报告缓存的RST重置卡可用数量及覆盖数。这是凭据池额度，不属于某个客户端Key。只读现有结果，不触发刷新；卡数量变化不代表使用。", map[string]any{
 		"pools": map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": poolIDs}, "description": "可选模型池列表；省略或空数组表示全部模型池"},
 	}), func(ctx context.Context, _ *mcp.CallToolRequest, args mcpQuotaArgs) (*mcp.CallToolResult, any, error) {
 		return withRead(ctx, func(ctx context.Context) (string, error) {

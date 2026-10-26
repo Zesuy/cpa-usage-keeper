@@ -133,6 +133,44 @@ func TestSummaryUsesCurrentThenOwnHistoryThenCohortArithmeticMean(t *testing.T) 
 	}
 }
 
+func TestSummaryResetCreditsUseOnlyKnownCachedCounts(t *testing.T) {
+	db := summaryTestDB(t)
+	s := summaryTestService(db)
+	now := time.Now().Truncate(time.Second)
+	for i, count := range []*int{ptr(3), ptr(0), nil, ptr(-1)} {
+		identity := summaryTestIdentity(t, db, fmt.Sprintf("credit-%d", i), "codex", "team")
+		summaryTestCache(s, identity, []QuotaRow{summaryTestRow(18000, 25, 100, 1, now)}, now)
+		s.refreshTasks[identity.Identity].Quota.RateLimitResetCreditsAvailableCount = count
+	}
+	other := summaryTestIdentity(t, db, "other-provider", "antigravity", "pro")
+	summaryTestCache(s, other, nil, now)
+	s.refreshTasks[other.Identity].Quota.RateLimitResetCreditsAvailableCount = ptr(99)
+	result, err := s.quotaSummaryAt(context.Background(), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	credits := result.Groups[0].ResetCredits
+	if credits == nil || credits.AvailableCount == nil || *credits.AvailableCount != 3 || credits.Known != 2 || credits.Eligible != 4 {
+		t.Fatalf("bad count/coverage: %+v", credits)
+	}
+	for _, group := range result.Groups[1:] {
+		if group.ResetCredits != nil {
+			t.Fatal("credits exposed on other provider")
+		}
+	}
+	// Failure/refreshing states cannot claim a current zero; explicit zero can.
+	s.refreshTasks["credit-0"].Status = RefreshTaskStatusFailed
+	result, err = s.quotaSummaryAt(context.Background(), now)
+	if err != nil || result.Groups[0].ResetCredits.AvailableCount == nil || *result.Groups[0].ResetCredits.AvailableCount != 0 || result.Groups[0].ResetCredits.Known != 1 {
+		t.Fatalf("zero not preserved: %+v %v", result, err)
+	}
+	s.refreshTasks["credit-1"].Status = RefreshTaskStatusQueued
+	result, err = s.quotaSummaryAt(context.Background(), now)
+	if err != nil || result.Groups[0].ResetCredits.AvailableCount != nil || result.Groups[0].ResetCredits.Known != 0 {
+		t.Fatalf("unknown became zero: %+v %v", result, err)
+	}
+}
+
 func TestSummaryHistorySurvivesRestartAndOwnValueWinsOverPeers(t *testing.T) {
 	db := summaryTestDB(t)
 	s := summaryTestService(db)

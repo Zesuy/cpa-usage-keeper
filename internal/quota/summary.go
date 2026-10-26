@@ -54,12 +54,21 @@ type SummaryPlanCount struct {
 }
 
 type SummaryGroup struct {
-	Provider string             `json:"provider"`
-	Pool     string             `json:"pool"`
-	Label    string             `json:"label"`
-	Quota    []SummaryRow       `json:"quota"`
-	Stats    SummaryUsageStats  `json:"stats"`
-	Plans    []SummaryPlanCount `json:"plans"`
+	ResetCredits *SummaryResetCredits `json:"reset_credits,omitempty"`
+	Provider     string               `json:"provider"`
+	Pool         string               `json:"pool"`
+	Label        string               `json:"label"`
+	Quota        []SummaryRow         `json:"quota"`
+	Stats        SummaryUsageStats    `json:"stats"`
+	Plans        []SummaryPlanCount   `json:"plans"`
+}
+
+// SummaryResetCredits only sums existing cached counts per credential file.
+// It is not a consumption history; unknown values must not become zero.
+type SummaryResetCredits struct {
+	AvailableCount *int64 `json:"available_count"`
+	Known          int    `json:"known"`
+	Eligible       int    `json:"eligible"`
 }
 
 // SummaryUsageStats sums the same reset-adjusted counters as the credential list.
@@ -345,10 +354,29 @@ func (s *Service) quotaSummaryAt(ctx context.Context, now time.Time) (SummaryRes
 	}
 	for _, pool := range summaryPools {
 		group := SummaryGroup{Provider: pool.provider, Pool: pool.key, Label: pool.label, Quota: []SummaryRow{}, Plans: []SummaryPlanCount{}}
+		if pool.provider == "codex" {
+			group.ResetCredits = &SummaryResetCredits{}
+		}
 		planCounts := make(map[string]int)
 		for _, identity := range identities {
 			if summaryProvider(identity) == pool.provider {
 				planCounts[plans[identity.Identity]]++
+				if credits := group.ResetCredits; credits != nil {
+					credits.Eligible++
+					task := tasks[identity.Identity]
+					if task.Status == RefreshTaskStatusCompleted && task.Quota != nil && (task.Type == "" || normalizeIdentityType(task.Type) == "codex") {
+						if count := task.Quota.RateLimitResetCreditsAvailableCount; count != nil && *count >= 0 {
+							if credits.AvailableCount == nil {
+								credits.AvailableCount = new(int64)
+							}
+							if int64(*count) > math.MaxInt64-*credits.AvailableCount {
+								return response, fmt.Errorf("reset credit count overflow")
+							}
+							*credits.AvailableCount += int64(*count)
+							credits.Known++
+						}
+					}
+				}
 				if err := group.Stats.add(identity); err != nil {
 					return response, err
 				}

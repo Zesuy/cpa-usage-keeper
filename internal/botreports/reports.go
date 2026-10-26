@@ -168,6 +168,13 @@ func Quota(summary quota.SummaryResponse, now time.Time) string {
 			fmt.Fprintf(&b, " %s ×%d", label(plan.Plan), plan.Count)
 		}
 		b.WriteString("\n")
+		if credits := group.ResetCredits; credits != nil {
+			count := "未知"
+			if credits.AvailableCount != nil {
+				count = fmt.Sprintf("%d", *credits.AvailableCount)
+			}
+			fmt.Fprintf(&b, "RST重置卡缓存可用数量：%s；凭据覆盖%d/%d。按凭据文件汇总，未去重账号；部分覆盖时仅为已知部分合计。缓存可能含旧值，无独立数量更新时间；数量减少不代表使用，也可能过期。\n", count, credits.Known, credits.Eligible)
+		}
 		for _, seconds := range []int64{18000, 604800} {
 			window := "5小时"
 			if seconds == 604800 {
