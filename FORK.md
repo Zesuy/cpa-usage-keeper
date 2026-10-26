@@ -27,7 +27,7 @@ The [independent panel example](examples/account-quota-panel/README.md) includes
 
 ## Read-only Bot MCP
 
-Set an independent `MCP_API_KEY` to enable stateless Streamable HTTP at `{APP_BASE_PATH}/mcp`. The three read-only tools return Chinese reports for AI consumption: `get_quota_summary`, `get_key_usage` (default exact alias `bot`), and `get_model_tps` (global active-Key scope). An empty key disables MCP; web login and the external quota API retain their separate permissions. Reads reuse stored fees and quota estimates, never refresh providers, and respect the cost-recalculation read gate. The hourly reader uses a single database snapshot, existing Overview rollups and disjoint raw-event intervals to preserve the exact trailing 24 hours, including aggregation lag. No schema changes or frontend changes are required.
+Set an independent `MCP_API_KEY` to enable stateless Streamable HTTP at `{APP_BASE_PATH}/mcp`. The four read-only tools return Chinese reports for AI consumption: `get_quota_summary`, `get_key_usage` (default exact alias `bot`), `get_model_tps` (global active-Key scope), and `get_quota_recovery_events` (persistent event cursor). An empty key disables MCP; web login and the external quota API retain their separate permissions. Reads reuse stored fees and quota estimates, never refresh providers, and respect the cost-recalculation read gate. The hourly reader uses a single database snapshot, existing Overview rollups and disjoint raw-event intervals to preserve the exact trailing 24 hours, including aggregation lag. The recovery detector adds one event table; baselines, reset barriers and below-threshold hits stay in memory. No frontend changes are required.
 
 See [Bot MCP integration](examples/bot-mcp/README.md) for configuration, calls, report examples, and statistical definitions.
 
@@ -62,3 +62,9 @@ git push origin fork
 ```
 
 For future customizations, make small independent commits on `fork`. They can then be cherry-picked onto a new upstream base if a rebuild of the custom branch becomes necessary. Do not cherry-pick the old Antigravity commits: upstream already provides that functionality.
+
+### Multi-account Weekly recovery observations
+
+The Codex detector compares adjacent, non-overlapping real official quota queries only. Before natural expiry (with a 120-second margin), any raw remaining increase plus an absolute Weekly reset extension over 120 seconds is a hit. Three distinct nonempty AccountIDs within 30 minutes persist one incident with the first three masked evidence records; successful persistence starts a 30-minute quiet period. Duplicate credential files do not add votes. Events describe observations, not official compensation or proof against external card consumption.
+
+Keeper consumption establishes an account-wide in-memory generation barrier before the call. Known outcomes rebaseline on the next valid official read. Unknown outcomes enqueue one read-only verification using existing refresh workers; they never retry consumption. Unchanged or failed verification leaves the barrier until recovery or the previous Weekly boundary. Restart learns fresh baselines and cannot reconstruct old reset barriers. `get_quota_recovery_events` passively returns Chinese text plus structured cursor pages; only threshold incidents survive restarts.

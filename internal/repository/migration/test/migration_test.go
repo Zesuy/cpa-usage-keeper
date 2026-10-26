@@ -99,6 +99,7 @@ func TestOrderedMigrationsPreservesExecutionOrder(t *testing.T) {
 		"20261020_add_auth_session_oidc_identity",
 		"20261023_quota_capacity_estimates",
 		"20261023_quota_summary_snapshots",
+		"20261026_quota_recovery_events",
 	}
 	assertStringSlicesEqual(t, want, got)
 }

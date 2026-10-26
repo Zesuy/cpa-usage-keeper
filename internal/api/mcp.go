@@ -14,6 +14,7 @@ import (
 	"cpa-usage-keeper/internal/botreports"
 	"cpa-usage-keeper/internal/quota"
 	"cpa-usage-keeper/internal/repository"
+	"cpa-usage-keeper/internal/repository/dto"
 	"cpa-usage-keeper/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -36,6 +37,15 @@ type mcpTPSArgs struct {
 }
 type mcpQuotaArgs struct {
 	Pools []string `json:"pools,omitempty"`
+}
+
+type mcpRecoveryArgs struct {
+	AfterID string `json:"after_id,omitempty"`
+	Limit   *int   `json:"limit,omitempty"`
+}
+
+type quotaRecoveryReader interface {
+	GetQuotaRecoveryEvents(context.Context, int64, int) (dto.QuotaRecoveryEventsPage, error)
 }
 
 func mcpText(s string, failed bool) *mcp.CallToolResult {
@@ -80,6 +90,9 @@ func registerMCPRoute(group *gin.RouterGroup, key string, usage service.UsagePro
 		}
 		text, err := read(ctx)
 		if err != nil {
+			if errors.Is(err, repository.ErrQuotaRecoveryCursor) {
+				return mcpText("invalid_arguments：事件游标超出当前数据库范围；恢复旧备份后请重新建立游标。", true), nil, nil
+			}
 			var keyErr *repository.BotKeyError
 			if errors.As(err, &keyErr) {
 				var b strings.Builder
@@ -185,6 +198,51 @@ func registerMCPRoute(group *gin.RouterGroup, key string, usage service.UsagePro
 			}
 			return botreports.Quota(summary, now), nil
 		})
+	})
+	recoveryTool := mcpTool("get_quota_recovery_events", "按ID读取已持久化的多账号Weekly非预期恢复事件。两次官方观测形成单账号命中，30分钟内三个不同账号才记录。返回中文及structuredContent；不是官方补偿的成因认定，无法排除外部用卡。只读，不刷新上游。", map[string]any{
+		"after_id": map[string]any{"type": "string", "pattern": "^(0|[1-9][0-9]*)$", "description": "返回ID大于此游标的事件，默认0；保存next_after_id供下次查询"},
+		"limit":    map[string]any{"type": "integer", "minimum": 1, "maximum": 200, "description": "每页数量，默认50"},
+	})
+	recoveryTool.OutputSchema = map[string]any{
+		"type": "object", "required": []string{"events", "next_after_id", "has_more", "detector_started_at"},
+		"properties": map[string]any{
+			"events":        map[string]any{"type": "array", "items": map[string]any{"type": "object"}},
+			"next_after_id": map[string]any{"type": "string"}, "has_more": map[string]any{"type": "boolean"},
+			"detector_started_at": map[string]any{"type": "string"},
+		},
+	}
+	mcp.AddTool(server, recoveryTool, func(ctx context.Context, _ *mcp.CallToolRequest, args mcpRecoveryArgs) (*mcp.CallToolResult, any, error) {
+		afterID, limit := int64(0), 50
+		if args.AfterID != "" {
+			var err error
+			afterID, err = strconv.ParseInt(args.AfterID, 10, 64)
+			if err != nil || afterID < 0 {
+				return mcpText("invalid_arguments：after_id必须是有效的非负整数ID字符串。", true), nil, nil
+			}
+		}
+		if args.Limit != nil {
+			if *args.Limit < 1 || *args.Limit > 200 {
+				return mcpText("invalid_arguments：limit必须在1到200之间。", true), nil, nil
+			}
+			limit = *args.Limit
+		}
+		var page dto.QuotaRecoveryEventsPage
+		result, _, err := withRead(ctx, func(ctx context.Context) (string, error) {
+			provider, ok := quotaProvider.(quotaRecoveryReader)
+			if !ok {
+				return "", errors.New("missing quota recovery provider")
+			}
+			var readErr error
+			page, readErr = provider.GetQuotaRecoveryEvents(ctx, afterID, limit)
+			if readErr != nil {
+				return "", readErr
+			}
+			return botreports.QuotaRecoveryEvents(page), nil
+		})
+		if err != nil || result.IsError {
+			return result, nil, err
+		}
+		return result, page, nil
 	})
 	handler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, &mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true, MaxRequestBodyBytes: 128 * 1024, PropagateRequestCancellation: true})
 	group.Any("/mcp", func(c *gin.Context) {

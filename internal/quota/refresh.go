@@ -20,11 +20,12 @@ type RefreshSource string
 const refreshTaskReadCleanupInterval = time.Minute
 
 const (
-	RefreshSourceManual        RefreshSource = "manual"
-	RefreshSourceInspection    RefreshSource = "inspection"
-	RefreshSourceScheduled     RefreshSource = "scheduled"
-	RefreshSourceCacheBackfill RefreshSource = "cache_backfill"
-	RefreshSourceUsageHeader   RefreshSource = "usage_header"
+	RefreshSourceManual            RefreshSource = "manual"
+	RefreshSourceInspection        RefreshSource = "inspection"
+	RefreshSourceScheduled         RefreshSource = "scheduled"
+	RefreshSourceCacheBackfill     RefreshSource = "cache_backfill"
+	RefreshSourceUsageHeader       RefreshSource = "usage_header"
+	refreshSourceResetVerification RefreshSource = "reset_verification"
 )
 
 type RefreshTaskStatus string
@@ -106,7 +107,8 @@ type RefreshTaskRecord struct {
 	ExpiresAt         time.Time
 	UpstreamResponses []UpstreamResponse
 	// cacheGeneration 使清理前入队的 dispatcher/worker 不能接管同 auth_index 的新任务。
-	cacheGeneration uint64
+	cacheGeneration          uint64
+	resetVerificationPending bool
 }
 
 func (s *Service) GetCachedQuota(ctx context.Context, request CacheRequest) (CacheResponse, error) {
@@ -403,6 +405,7 @@ func (s *Service) runRefreshTaskWithWorker(task *RefreshTaskRecord) {
 		// 释放 worker token，让队列中的下一个任务可以继续执行。
 		<-s.refreshWorkerTokens
 	}()
+	defer s.dispatchPendingResetVerification(task)
 
 	// 把任务从 queued 切到 running，并拿到锁内确认后的 auth_index。
 	authIndex, source, ok := s.markRefreshTaskRunning(task)

@@ -320,6 +320,7 @@ func orderedMigrations() []databaseMigration {
 		{version: "20261020_add_auth_session_oidc_identity", run: addAuthSessionOIDCIdentityMigration},
 		{version: "20261023_quota_capacity_estimates", run: createQuotaCapacityEstimatesMigration},
 		{version: "20261023_quota_summary_snapshots", run: createQuotaSummarySnapshotsMigration},
+		{version: "20261026_quota_recovery_events", run: createQuotaRecoveryEventsMigration},
 	}
 }
 

@@ -11,6 +11,7 @@ import (
 
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/repository"
+	"cpa-usage-keeper/internal/repository/dto"
 
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
@@ -31,6 +32,7 @@ type ServiceOptions struct {
 type Service struct {
 	db       *gorm.DB
 	registry ProviderRegistry
+	recovery *weeklyRecoveryDetector
 	// quotaUpstreamResponsesEnabled 控制刷新任务是否把 CPA 转发的完整上游响应写入最新限额缓存。
 	quotaUpstreamResponsesEnabled bool
 
@@ -216,6 +218,9 @@ func NewServiceWithRegistryAndOptions(db *gorm.DB, registry ProviderRegistry, op
 		codexQuotaHistoryLoad:              repository.LoadLatestQuotaHistoryState,
 		codexQuotaHistoryListIdentities:    repository.ListActiveCredentialUsageIdentitiesByAuthIndexes,
 	}
+	service.recovery = newWeeklyRecoveryDetector(func(ctx context.Context, key string, event dto.QuotaRecoveryEvent) error {
+		return repository.InsertQuotaRecoveryEvent(ctx, db, key, event)
+	})
 	go service.runUsageHeaderSnapshotWorker()
 	// history 拥有独立队列、timer 和稳定尾段，不能复用一分钟 cache worker 的 pending map。
 	go service.runCodexQuotaHistoryRunner()
@@ -296,6 +301,7 @@ func (s *Service) StopRefreshTasks() {
 	// 停止新投递并等待最多两秒的 history best-effort flush 后，调用方才能关闭数据库。
 	s.stopCodexQuotaHistoryRunner()
 	s.refreshWG.Wait()
+	s.recovery.flush()
 }
 
 func (s *Service) Check(ctx context.Context, request CheckRequest) (CheckResponse, error) {
@@ -353,14 +359,20 @@ func (s *Service) check(ctx context.Context, request CheckRequest, beforeSubscri
 		defer cancelSubscription()
 	}
 	// provider 返回各自原始结构后，再统一转换为前端可复用的 quota rows。
+	recoveryQuery := s.recovery.begin(identity, request.Source)
 	providerOutput, err := handler.Check(ctx, ProviderInput{Identity: identity})
+	recoveryCompletedAt := time.Now()
 	if err != nil {
+		if recoveryQuery.state != nil {
+			s.recovery.flush()
+		}
 		if subscriptionDone != nil {
 			cancelSubscription()
 			<-subscriptionDone
 		}
 		return CheckResponse{}, false, err
 	}
+	s.recovery.finish(recoveryQuery, providerOutput, recoveryCompletedAt)
 	// 主动查询只从真实 provider 的账号主窗口提取可信观察；其它窗口不参与历史。
 	if provider := normalizeIdentityType(identity.Type); provider == "codex" || provider == "claude" {
 		observations := BuildMainQuotaObservations(authIndex, providerOutput, time.Now())

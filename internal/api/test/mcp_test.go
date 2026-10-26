@@ -119,11 +119,11 @@ func TestMCPIndependentBearerAndDisabledRoute(t *testing.T) {
 			}
 			session := connectBotMCP(t, router, base)
 			tools, err := session.ListTools(context.Background(), nil)
-			if err != nil || len(tools.Tools) != 3 {
+			if err != nil || len(tools.Tools) != 4 {
 				t.Fatal("tool discovery", err)
 			}
 			for _, tool := range tools.Tools {
-				if tool.Annotations == nil || !tool.Annotations.ReadOnlyHint || tool.OutputSchema != nil {
+				if tool.Annotations == nil || !tool.Annotations.ReadOnlyHint || (tool.OutputSchema != nil) != (tool.Name == "get_quota_recovery_events") {
 					t.Fatalf("tool should be read-only text: %+v", tool)
 				}
 			}
@@ -233,7 +233,7 @@ func testMCPCostGateAndCancellation(t *testing.T, version string) {
 	if _, err := session.ListTools(context.Background(), nil); err != nil {
 		t.Fatal("blocked gate broke discovery", err)
 	}
-	for _, name := range []string{"get_key_usage", "get_model_tps", "get_quota_summary"} {
+	for _, name := range []string{"get_key_usage", "get_model_tps", "get_quota_summary", "get_quota_recovery_events"} {
 		r := callBotTool(t, session, name, map[string]any{})
 		if !r.IsError || !strings.Contains(botResultText(r), "costs_busy") {
 			t.Fatal("gate was bypassed", botResultText(r))

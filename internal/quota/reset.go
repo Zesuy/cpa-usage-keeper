@@ -115,7 +115,15 @@ func (s *Service) Reset(ctx context.Context, request ResetRequest) (ResetRespons
 	if !ok {
 		return ResetResponse{}, fmt.Errorf("%w: %s", ErrUnsupportedType, normalizeIdentityType(identity.Provider))
 	}
+	recoveryReset := s.recovery.beginReset(identity)
 	output, err := resetter.Reset(ctx, ProviderInput{Identity: identity})
+	known := codexResetResultKnown(output, err)
+	s.recovery.endReset(recoveryReset, known)
+	if !known {
+		// This queues one read, never a second consumption request. Its lifetime
+		// is owned by Service rather than the possibly cancelled HTTP request.
+		s.queueResetVerification(identity)
+	}
 	if err != nil {
 		return ResetResponse{}, err
 	}
@@ -125,6 +133,20 @@ func (s *Service) Reset(ctx context.Context, request ResetRequest) (ResetRespons
 		WindowsReset:   output.WindowsReset,
 		RecoveryFailed: output.RecoveryFailed,
 	}, nil
+}
+
+func codexResetResultKnown(output ProviderResetOutput, err error) bool {
+	if err == nil {
+		return output.Code == "reset"
+	}
+	var response ProviderHTTPError
+	if errors.As(err, &response) {
+		switch response.StatusCode {
+		case 400, 401, 403, 404, 422, 429:
+			return true // An explicit rejection, unlike timeouts, 409 or server errors.
+		}
+	}
+	return false
 }
 
 func (s *Service) beginReset(authIndex string) bool {

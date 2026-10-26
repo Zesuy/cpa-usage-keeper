@@ -1,6 +1,6 @@
 # Bot 只读 MCP
 
-Keeper 提供三个面向 AI 的只读工具，结果放在 MCP `content` 的文本块中，默认使用中文报告。无需浏览器登录、Cookie 或 Keeper 网页专用请求头，不提供管理、刷新、Key 排行或实时监控工具。
+Keeper 提供四个面向 AI 的只读工具，结果放在 MCP `content` 的文本块中，默认使用中文报告；恢复事件工具同时返回 `structuredContent`。无需浏览器登录、Cookie 或 Keeper 网页专用请求头，不提供管理、刷新、Key 排行或实时监控工具。
 
 ## 部署与鉴权
 
@@ -22,7 +22,7 @@ Authorization: Bearer <MCP_API_KEY>
 
 密钥留空返回 `404`；缺失或错误返回 `401`。不接受 URL 参数或 Cookie 中的密钥。`AUTH_ENABLED=false` 也不会免除 MCP 鉴权。`QUOTA_SUMMARY_API_KEY` 仅能访问原有聚合额度 REST 接口；MCP 密钥不会因此获得其他 REST 或管理接口权限。所有响应为 `Cache-Control: no-store`。
 
-此密钥可以读取下述三个工具覆盖的数据，包含其他有效 Key 的指定用量和全站模型速度；它不是绑定到 `bot` 的受限 Key。仅交给可信 Bot 的宿主进程，勿放入 HTML、浏览器存储或提交到仓库。优先通过 HTTPS 连接。
+此密钥可以读取下述四个工具覆盖的数据，包含其他有效 Key 的指定用量和全站模型速度；它不是绑定到 `bot` 的受限 Key。仅交给可信 Bot 的宿主进程，勿放入 HTML、浏览器存储或提交到仓库。优先通过 HTTPS 连接。
 
 支持静态请求头的 Bot 客户端可以按其配置格式填写以下内容（占位符须由宿主的私有配置/密钥管理替换）：
 
@@ -67,17 +67,19 @@ result, err := session.CallTool(ctx, &mcp.CallToolParams{
 // 检查 err 和 result.IsError，再把 result.Content 的文本交给 AI。
 ```
 
-## 三个工具
+## 四个工具
 
 | 工具 | 参数 | 返回内容 |
 | --- | --- | --- |
 | `get_quota_summary` | 可选 `pools` 字符串数组 | 各池套餐数量、5h/Weekly 的用量、比例、预估容量/剩余、最早重置和覆盖情况 |
 | `get_key_usage` | 可选 `key_name` 或 `key_id`；可选 `range="24h"`、`granularity="hour"` | 指定 Key 的总览、模型分布、逐小时用量 |
+| `get_quota_recovery_events` | 可选 `after_id="0"` 字符串、`limit=50`（1–200） | 已持久化的多账号 Weekly 异常恢复事件，中文说明及结构化游标页 |
 | `get_model_tps` | 可选 `models` 数组；可选 `range="24h"`、`granularity="hour"` | 全站有效 Key 范围的模型速度、样本数、逐小时均值和变化范围 |
 
 工具调用的 `name` 和 `arguments` 示例：
 
 ```json
+{"name":"get_quota_recovery_events","arguments":{"after_id":"0","limit":50}}
 {"name":"get_quota_summary","arguments":{}}
 {"name":"get_quota_summary","arguments":{"pools":["codex","antigravity-gemini-models"]}}
 {"name":"get_key_usage","arguments":{}}
@@ -155,3 +157,61 @@ Codex 组还报告现有内存缓存的 RST 重置卡可用数量及凭据覆盖
 - `invalid_arguments` 或协议参数错误：修正参数。Key 不存在/重名：按报告提示明确选择，不要改为全站查询。
 - `read_failed`：内部读取失败，稍后重试；不输出 SQL、完整 Key 或底层错误。
 - 调用取消/断开连接会取消数据库读取并释放费用许可；宿主应设置超时。无请求、缺少速度样本和部分额度覆盖是正常报告内容，并非鉴权失败。
+
+## 多账号 Weekly 异常恢复事件与 Bot 游标
+
+调用 `get_quota_recovery_events`，检查传输错误和 `isError` 后读取 `structuredContent`。默认 `after_id="0"`、`limit=50`，最多 200；ID 是字符串，按数值递增，可能不连续。该工具复用独立 MCP Bearer 鉴权和费用读取许可；费用重算中返回 `costs_busy`，不会读取、刷新上游或推进检测状态。
+
+```json
+{
+  "events": [{
+    "id": "42",
+    "type": "multi_account_weekly_recovery",
+    "rule_version": 1,
+    "detector_started_at": "2026-10-26T00:00:00Z",
+    "first_detected_at": "2026-10-26T04:00:02Z",
+    "detected_at": "2026-10-26T04:02:02Z",
+    "recorded_at": "2026-10-26T04:02:03Z",
+    "account_count": 3,
+    "keeper_reset_excluded": true,
+    "external_reset_status": "unknown",
+    "accounts": [{
+      "account_ref": "codex_<SHA256 脱敏引用>",
+      "plan": "team",
+      "before": {
+        "query_started_at": "2026-10-26T03:00:00Z",
+        "query_completed_at": "2026-10-26T03:00:02Z",
+        "remaining_fraction": 0.5,
+        "reset_at": "2026-10-31T03:00:00Z"
+      },
+      "after": {
+        "query_started_at": "2026-10-26T04:00:00Z",
+        "query_completed_at": "2026-10-26T04:00:02Z",
+        "remaining_fraction": 0.9,
+        "reset_at": "2026-11-02T03:00:00Z"
+      },
+      "remaining_increase_points": 40,
+      "reset_delay_seconds": 172800,
+      "occurred_between": {"from": "2026-10-26T03:00:00Z", "to": "2026-10-26T04:00:02Z"}
+    }]
+  }],
+  "next_after_id": "42",
+  "has_more": false,
+  "detector_started_at": "2026-10-26T00:00:00Z"
+}
+```
+
+示例为简洁仅展示一个账号的证据，真实事件的 `accounts` 固定包含最先达标的三个不同账号。时间采用 RFC3339 UTC；`remaining_fraction` 为 0–1，增加量单位为百分点。只保存脱敏账号引用和官方窗口证据，不返回凭据名、完整 AccountID、API Key 或原始上游响应。
+
+Bot 推荐流程：持久化本 Keeper 实例的 `next_after_id`，下一次作为 `after_id`；若 `has_more=true` 则继续读取下一页。先按 `(Keeper实例, event.id)` 去重并持久化到通知待发队列，再推进游标，防止通知失败漏报。首次连接从 `0` 会包含历史事件；若只关注之后发生的事件，先翻完当前历史并保存游标，再开始通知。备份恢复导致游标大于当前最大 ID 时返回明确 `invalid_arguments`，需要重新建立游标；清库或实例替换时也应重建独立游标。
+
+### 检测与解释边界
+
+- 仅接收专门官方额度查询的原始 Codex `604800` 秒 Weekly 窗口；不使用 Header、聚合投影、到期自动满额或纠错后的历史。套餐、身份变化和首次观测只建基线；迟到、重复、重叠响应不用于 A→B 比较。
+- B 在 A 的预期重置前超过 120 秒完成，绝对重置时间延后超过 120 秒，且原始剩余额度严格上升，即命中。无需第三次查询，也没有额外百分比门槛。
+- 30 分钟滑动窗口内至少三个非空 AccountID 才入库；重复凭据文件只算一个账号，新重置时间无需相同。一、两个命中只留内存。成功入库后静默合并 30 分钟；写入失败保留同一冻结事件及唯一键，在后续官方刷新重试。
+- Keeper 调用真实消费前先建立账号屏障，清除基线及单账号命中，隔离所有凭据副本和跨屏障的在途响应。明确成功后下一份有效观测只重建基线，CPA 冷却恢复失败仍属于消费成功。
+- 超时或结果不明只安排一次有界队列内的只读官方补查，绝不重试消费。补查失败或不变继续保留屏障；后续真实恢复或旧 Weekly 到期后静默重建。没有旧边界时，以首次有效补查的边界作为等待终点。
+- 只持久化已达三账号门槛的低频事件，不保存完整观测流水、用卡审计或未达标命中。进程重启后重新学习基线，不追溯补报；旧事件仍可读取。内存屏障不能追溯跨重启的旧主动重置请求。
+
+`keeper_reset_excluded=true` 仅表示本进程观测区间内已隔离 Keeper 主动重置；`external_reset_status="unknown"` 表示外部客户端用卡未知。事件确认的是多账号非预期周额度恢复，不能直接称为官方补偿。`occurred_between` 从旧查询开始到首次异常查询完成，是可能发生区间；发现时间不等于上游精确发生时间。空列表只表示没有已记录事件，不证明没有发生恢复。
