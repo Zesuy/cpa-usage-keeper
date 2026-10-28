@@ -289,7 +289,7 @@ func TestSummaryPartialHeaderAfterRestartRetainsUnchangedWeeklySnapshot(t *testi
 	restarted := summaryTestService(db)
 	later := now.Add(5 * time.Minute)
 	header := CheckResponse{Quota: []QuotaRow{summaryTestRow(18000, 50, 400, 4, later)}}
-	if !restarted.mergeUsageHeaderQuotaCache(id.Identity, header, later, id, 0) {
+	if !restarted.mergeUsageHeaderQuotaCache(id.Identity, header, later, later, id, 0) {
 		t.Fatal("partial header was not published")
 	}
 	got, err := restarted.quotaSummaryAt(context.Background(), later.Add(time.Second))

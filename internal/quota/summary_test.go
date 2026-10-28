@@ -309,7 +309,7 @@ func TestSummaryPublicationsPersistEstimatesAndRetainRowFreshness(t *testing.T) 
 	five.UsedPercent = ptr(50.0)
 	five.WindowUsageTokens = ptr(int64(300))
 	five.WindowUsageCost = ptr(3.0)
-	if !s.mergeUsageHeaderQuotaCache(id.Identity, CheckResponse{Quota: []QuotaRow{five}}, now, id, 0) {
+	if !s.mergeUsageHeaderQuotaCache(id.Identity, CheckResponse{Quota: []QuotaRow{five}}, now, now, id, 0) {
 		t.Fatal("header not published")
 	}
 	got, err := s.quotaSummaryAt(context.Background(), now)
@@ -332,7 +332,7 @@ func TestSummaryPublicationsPersistEstimatesAndRetainRowFreshness(t *testing.T) 
 	five.WindowUsageTokens = ptr(int64(0))
 	five.WindowUsageCost = ptr(0.0)
 	later := now.Add(time.Second)
-	if !s.mergeUsageHeaderQuotaCache(id.Identity, CheckResponse{Quota: []QuotaRow{five}}, later, id, 0) {
+	if !s.mergeUsageHeaderQuotaCache(id.Identity, CheckResponse{Quota: []QuotaRow{five}}, later, later, id, 0) {
 		t.Fatal("second header not published")
 	}
 	got, err = s.quotaSummaryAt(context.Background(), later)
@@ -346,7 +346,7 @@ func TestSummaryPublicationsPersistEstimatesAndRetainRowFreshness(t *testing.T) 
 	// Invalidated task/header generations can neither publish nor persist.
 	s.InvalidateStoredCostCache()
 	s.markRefreshTaskCompleted(task, CheckResponse{Quota: []QuotaRow{week}}, nil)
-	if s.mergeUsageHeaderQuotaCache(id.Identity, CheckResponse{Quota: []QuotaRow{week}}, later.Add(time.Second), id, 0) {
+	if s.mergeUsageHeaderQuotaCache(id.Identity, CheckResponse{Quota: []QuotaRow{week}}, later.Add(time.Second), later.Add(time.Second), id, 0) {
 		t.Fatal("stale generation published")
 	}
 	var count int64

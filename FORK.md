@@ -68,3 +68,28 @@ For future customizations, make small independent commits on `fork`. They can th
 The Codex detector compares adjacent, non-overlapping real official quota queries only. Before natural expiry (with a 120-second margin), any raw remaining increase plus an absolute Weekly reset extension over 120 seconds is a hit. Three distinct nonempty AccountIDs within 30 minutes persist one incident with the first three masked evidence records; successful persistence starts a 30-minute quiet period. Duplicate credential files do not add votes. Events describe observations, not official compensation or proof against external card consumption.
 
 Keeper consumption establishes an account-wide in-memory generation barrier before the call. Known outcomes rebaseline on the next valid official read. Unknown outcomes enqueue one read-only verification using existing refresh workers; they never retry consumption. Unchanged or failed verification leaves the barrier until recovery or the previous Weekly boundary. Restart learns fresh baselines and cannot reconstruct old reset barriers. `get_quota_recovery_events` passively returns Chinese text plus structured cursor pages; only threshold incidents survive restarts.
+
+## Upstream maintenance
+
+The 2026-10-28 integration baseline is upstream main `4cfffa1c2feea8e672dd2b739777f69a593b250f` (v2.0.2 plus subsequent fixes). Merge upstream history into a temporary branch from `fork`, resolve conflicts without dropping fork changes, run validation, then fast-forward `fork` and publish its image. Do not rebase published fork history or force-push either long-lived branch. `main` tracks upstream independently; syncing it never publishes the fork image.
+
+Daily synchronization runs from default branch `main` at 08:17 Asia/Shanghai (GitHub may delay scheduled jobs). Configure repository Actions secret `UPSTREAM_SYNC_TOKEN` with a fine-grained PAT limited to this repository and Contents/Workflows read-write permissions. The workflow explicitly fails when the secret is missing and does not fall back to `GITHUB_TOKEN`. Token expiry, permission failures and merge conflicts require manual maintenance; never use force-sync to remove the maintenance workflow. Keep credentials out of git and logs.
+
+Validation for each integration:
+
+```sh
+go test ./cmd/... ./internal/... -count=1 -timeout=300s
+go vet ./cmd/... ./internal/...
+go test -race ./internal/quota ./internal/quota/test ./internal/api/test ./internal/repository/test -run 'TestRecovery|TestWeeklyRecovery|TestQuotaSummary|TestSummary|TestMCP|TestExternal|Test.*UsageHeader|Test.*LimitReached|Test.*Bot' -count=1 -timeout=180s
+npm --prefix web ci
+npm --prefix web run test
+npm --prefix web run lint
+npm --prefix web run typecheck
+npm --prefix web run build
+node --test examples/account-quota-panel/panel.test.mjs examples/account-quota-panel/poller.test.mjs
+node --test examples/account-quota-panel/browser-verify.mjs
+```
+
+The browser check uses `agent-browser` and requires its Chromium runtime. Run backend builds and workflow lint as well. The service-tier upgrade regression uses a disposable copy of a prior-fork-schema fixture and checks that quota capacity, snapshots, recovery evidence, cursors and stored fees survive. New upstream fields do not backfill historical tiers or recalculate old token accounting.
+
+Fork builds publish `ghcr.io/zesuy/cpa-usage-keeper:latest` and `sha-<first-seven-commit-characters>` for linux/amd64, using the upstream Go/Node builder series and pulling current bases. Verify the build result, image revision and anonymous pull before handing over the fixed tag. Production updates remain manual: back up the database first, retain the previous image tag, and restore the matching backup if rollback requires reverting schema changes.

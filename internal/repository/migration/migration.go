@@ -102,7 +102,8 @@ const (
 	// migrationAddUsageEventTraceMetadata 只保存上游提供的执行与节点元数据，历史行保持 NULL。
 	migrationAddUsageEventTraceMetadata = "20261008_usage_event_trace_metadata"
 	// migrationRecoverExecutionUsageEvents 以短事务回填事件标识并重新排队旧入口误拒绝的执行消息。
-	migrationRecoverExecutionUsageEvents = "20261018_recover_execution_usage_events"
+	migrationRecoverExecutionUsageEvents       = "20261018_recover_execution_usage_events"
+	migrationAddUsageEventEffectiveServiceTier = "20261023_usage_event_effective_service_tier"
 )
 
 type schemaMigration struct {
@@ -321,6 +322,7 @@ func orderedMigrations() []databaseMigration {
 		{version: "20261023_quota_capacity_estimates", run: createQuotaCapacityEstimatesMigration},
 		{version: "20261023_quota_summary_snapshots", run: createQuotaSummarySnapshotsMigration},
 		{version: "20261026_quota_recovery_events", run: createQuotaRecoveryEventsMigration},
+		{version: migrationAddUsageEventEffectiveServiceTier, run: addUsageEventEffectiveServiceTierMigration},
 	}
 }
 
