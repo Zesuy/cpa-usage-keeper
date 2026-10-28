@@ -29,6 +29,13 @@ func TestWeeklyRecoveryServicePersistsAndRestartLearns(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// The detector intentionally rejects queries starting at/before the prior
+	// completion. Windows wall time can have a coarse tick, so establish that
+	// the second official round really starts later instead of racing that tick.
+	baselineRoundCompleted := time.Now().UTC()
+	for !time.Now().UTC().After(baselineRoundCompleted) {
+		time.Sleep(time.Millisecond)
+	}
 	handler.output = officialWeekly(40, oldReset.Add(48*time.Hour))
 	for i := 0; i < 3; i++ {
 		if _, err := svc.Check(context.Background(), CheckRequest{AuthIndex: fmt.Sprintf("credential-%d", i), Source: RefreshSourceScheduled}); err != nil {
