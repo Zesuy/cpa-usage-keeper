@@ -29,10 +29,24 @@ jobs:
             echo '::error::Set repository secret UPSTREAM_SYNC_TOKEN to a fine-grained token restricted to this repository with Contents and Workflows read/write permissions. The default GITHUB_TOKEN cannot merge upstream workflow changes.'
             exit 1
           fi
+      - name: Check out main with sync token
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.UPSTREAM_SYNC_TOKEN }}
       - name: Merge upstream into main
         run: |
-          # Deliberately omit --force: preserve our workflow and surface conflicts.
-          if ! gh repo sync "$GH_REPO" --source Willxup/cpa-usage-keeper --branch main; then
-            echo '::error::Upstream sync failed. Resolve merge conflicts or repository-rule restrictions; if workflow updates are denied, configure UPSTREAM_SYNC_TOKEN with contents and workflows write access.'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          # Use ordinary Git rather than the merge-upstream REST endpoint.
+          git fetch --no-tags https://github.com/Willxup/cpa-usage-keeper.git refs/heads/main
+          if ! git merge --no-edit FETCH_HEAD; then
+            echo '::error::Upstream merge failed. Resolve conflicts manually; main has not been pushed.'
+            exit 1
+          fi
+          # Never force: concurrent updates or repository rules must fail safely.
+          if ! git push origin HEAD:refs/heads/main; then
+            echo '::error::Upstream push failed. Check UPSTREAM_SYNC_TOKEN Contents/Workflows write permissions, expiry, and branch rules; never force-push.'
             exit 1
           fi
