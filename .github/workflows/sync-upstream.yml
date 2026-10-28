@@ -19,10 +19,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      # Workflow-file updates may require a token with workflow write access.
-      GH_TOKEN: ${{ secrets.UPSTREAM_SYNC_TOKEN || github.token }}
+      # A repository-scoped token is required to merge upstream workflow changes.
+      GH_TOKEN: ${{ secrets.UPSTREAM_SYNC_TOKEN }}
       GH_REPO: ${{ github.repository }}
     steps:
+      - name: Require upstream sync token
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo '::error::Set repository secret UPSTREAM_SYNC_TOKEN to a fine-grained token restricted to this repository with Contents and Workflows read/write permissions. The default GITHUB_TOKEN cannot merge upstream workflow changes.'
+            exit 1
+          fi
       - name: Merge upstream into main
         run: |
           # Deliberately omit --force: preserve our workflow and surface conflicts.
