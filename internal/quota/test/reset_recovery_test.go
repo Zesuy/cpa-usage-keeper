@@ -18,24 +18,24 @@ import (
 
 func TestCodexResetRecoversCPARoutingAfterOfficialSuccess(t *testing.T) {
 	for _, tc := range []struct {
-		name            string
-		consumeStatus   int
-		consumeBody     string
-		recoveryStatus  int
-		recordResponses bool
-		wantResetError  bool
+		name             string
+		consumeStatus    int
+		consumeBody      string
+		recoveryStatus   int
+		recordResponses  bool
+		wantResetError   bool
+		wantVerification bool
 	}{
 		{name: "success", consumeStatus: 200, consumeBody: `{"code":"reset","windows_reset":2}`, recoveryStatus: 200},
 		{name: "response recording enabled", consumeStatus: 200, consumeBody: `{"code":"reset","windows_reset":2}`, recoveryStatus: 200, recordResponses: true},
 		{name: "recovery failure preserves consumed credit", consumeStatus: 200, consumeBody: `{"code":"reset","windows_reset":2}`, recoveryStatus: 500},
 		{name: "older CPA without recovery endpoint", consumeStatus: 200, consumeBody: `{"code":"reset","windows_reset":2}`, recoveryStatus: 404},
 		{name: "official rejection skips recovery", consumeStatus: 429, consumeBody: `{"error":"exhausted"}`, wantResetError: true},
-		{name: "invalid official success skips recovery", consumeStatus: 200, consumeBody: `{"code":"unknown"}`, wantResetError: true},
+		{name: "invalid official success skips recovery", consumeStatus: 200, consumeBody: `{"code":"unknown"}`, wantResetError: true, wantVerification: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			calls := make(chan string, 4)
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				calls <- r.URL.Path
 				if r.Method != http.MethodPost || r.Header.Get("Authorization") != "Bearer test-management-key" || r.Header.Get("Content-Type") != "application/json" {
 					t.Errorf("unexpected method or management authentication")
 				}
@@ -43,11 +43,23 @@ func TestCodexResetRecoversCPARoutingAfterOfficialSuccess(t *testing.T) {
 				switch r.URL.Path {
 				case "/v8/management/requests/api-call":
 					var request apicall.Request
-					if err := json.NewDecoder(r.Body).Decode(&request); err != nil || request.AuthIndex != "codex-auth" || request.URL != quota.CodexRateLimitResetCreditsConsumeURL {
-						t.Errorf("unexpected consume request: %+v, error: %v", request, err)
+					if err := json.NewDecoder(r.Body).Decode(&request); err != nil || request.AuthIndex != "codex-auth" {
+						t.Errorf("unexpected official request: %+v, error: %v", request, err)
 					}
-					_ = json.NewEncoder(w).Encode(map[string]any{"status_code": tc.consumeStatus, "body": tc.consumeBody})
+					switch {
+					case request.Method == http.MethodPost && request.URL == quota.CodexRateLimitResetCreditsConsumeURL:
+						calls <- "consume"
+						_ = json.NewEncoder(w).Encode(map[string]any{"status_code": tc.consumeStatus, "body": tc.consumeBody})
+					case tc.wantVerification && request.Method == http.MethodGet && request.URL == "https://chatgpt.com/backend-api/wham/usage":
+						calls <- "verify"
+						_ = json.NewEncoder(w).Encode(map[string]any{"status_code": 200, "body": `{"plan_type":"team","rate_limit_reset_credits":{"available_count":0},"rate_limit":{"secondary_window":{"used_percent":50,"limit_window_seconds":604800,"reset_at":2000000000}}}`})
+					default:
+						calls <- "unexpected"
+						t.Errorf("unexpected official operation: %+v", request)
+						w.WriteHeader(http.StatusBadRequest)
+					}
 				case "/v8/management/routing/cooldown/reset":
+					calls <- "recovery"
 					var request map[string]string
 					if err := json.NewDecoder(r.Body).Decode(&request); err != nil || !reflect.DeepEqual(request, map[string]string{"auth_index": "codex-auth"}) {
 						t.Errorf("recovery must target only the current auth_index: %v, error: %v", request, err)
@@ -66,15 +78,16 @@ func TestCodexResetRecoversCPARoutingAfterOfficialSuccess(t *testing.T) {
 			service := quota.NewServiceWithOptions(db, cpa.NewClient(server.URL, "test-management-key", time.Second, false), quota.ServiceOptions{
 				QuotaUpstreamResponsesEnabled: tc.recordResponses,
 			})
-			t.Cleanup(service.StopRefreshTasks)
+			defer service.StopRefreshTasks()
+			setRefreshCooldown(service, func(time.Duration) {})
 
 			response, err := service.Reset(context.Background(), quota.ResetRequest{AuthIndex: " codex-auth "})
 			if (err != nil) != tc.wantResetError {
 				t.Fatalf("Reset error = %v, want error %v", err, tc.wantResetError)
 			}
-			wantCalls := []string{"/v8/management/requests/api-call"}
+			wantCalls := []string{"consume"}
 			if !tc.wantResetError {
-				wantCalls = append(wantCalls, "/v8/management/routing/cooldown/reset")
+				wantCalls = append(wantCalls, "recovery")
 				if response.AuthIndex != "codex-auth" || response.Code != "reset" || response.WindowsReset != 2 {
 					t.Fatalf("official reset result lost: %+v", response)
 				}
@@ -91,6 +104,13 @@ func TestCodexResetRecoversCPARoutingAfterOfficialSuccess(t *testing.T) {
 				if payload.RecoveryFailed != (tc.recoveryStatus != 200) {
 					t.Errorf("partial success must expose recoveryFailed: %s", encoded)
 				}
+			}
+			// Unknown consume outcomes schedule exactly one read-only verification.
+			// Drain the service before inspecting calls so scheduling cannot hide
+			// an unexpected second consume or a missing verification.
+			service.WaitRefreshTasks()
+			if tc.wantVerification {
+				wantCalls = append(wantCalls, "verify")
 			}
 			var gotCalls []string
 			for len(calls) > 0 {
