@@ -16,7 +16,13 @@ import (
 	"gorm.io/gorm"
 )
 
-func TestUpstreamServiceTierUpgradePreservesForkQuotaData(t *testing.T) {
+func TestUpstreamUpgradePreservesForkQuotaData(t *testing.T) {
+	for _, version := range []string{"20261023_usage_event_effective_service_tier", "20261028_plugin_api_key_sources"} {
+		t.Run(version, func(t *testing.T) { checkUpstreamUpgradePreservesForkQuotaData(t, version) })
+	}
+}
+
+func checkUpstreamUpgradePreservesForkQuotaData(t *testing.T, version string) {
 	source := openUnmigratedTestDatabase(t)
 	if err := source.AutoMigrate(entities.All()...); err != nil {
 		t.Fatal(err)
@@ -32,16 +38,38 @@ func TestUpstreamServiceTierUpgradePreservesForkQuotaData(t *testing.T) {
 	if err := repository.InsertQuotaRecoveryEvent(context.Background(), source, "stable-recovery", dto.QuotaRecoveryEvent{Type: "multi_account_weekly_recovery", RuleVersion: 1, AccountCount: 3, Accounts: make([]dto.QuotaRecoveryEvidence, 3)}); err != nil {
 		t.Fatal(err)
 	}
-	// Represent the last published fork schema, before the upstream field existed.
-	for _, model := range []any{&entities.UsageEvent{}, &entities.UsageEventArchive{}} {
-		if err := source.Migrator().DropColumn(model, "EffectiveServiceTier"); err != nil {
-			t.Fatal(err)
+	// Represent the previously published fork, before the selected additive migration.
+	fields := []struct {
+		model any
+		names []string
+	}{
+		{&entities.UsageEvent{}, []string{"EffectiveServiceTier"}},
+		{&entities.UsageEventArchive{}, []string{"EffectiveServiceTier"}},
+	}
+	if version == "20261028_plugin_api_key_sources" {
+		fields = []struct {
+			model any
+			names []string
+		}{
+			{&entities.UsageEvent{}, []string{"IsNativeKey", "AccessProvider"}},
+			{&entities.UsageEventArchive{}, []string{"IsNativeKey", "AccessProvider"}},
+			{&entities.CPAAPIKey{}, []string{"SourceType", "AccessProvider"}},
+		}
+	}
+	if err := source.Create(&entities.CPAAPIKey{APIKey: "fixture-key", KeyAlias: "bot"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, table := range fields {
+		for _, name := range table.names {
+			if err := source.Migrator().DropColumn(table.model, name); err != nil {
+				t.Fatal(err)
+			}
 		}
 	}
 	if err := migration.MarkAllAsApplied(source); err != nil {
 		t.Fatal(err)
 	}
-	if err := source.Exec("DELETE FROM schema_migrations WHERE version = ?", "20261023_usage_event_effective_service_tier").Error; err != nil {
+	if err := source.Exec("DELETE FROM schema_migrations WHERE version = ?", version).Error; err != nil {
 		t.Fatal(err)
 	}
 	oldPage, err := repository.ReadQuotaRecoveryEvents(context.Background(), source, 0, 50, now)
@@ -108,17 +136,33 @@ func TestUpstreamServiceTierUpgradePreservesForkQuotaData(t *testing.T) {
 	if event.TotalTokens != 100 || event.CostUSD == nil || *event.CostUSD != 1.5 || event.EffectiveServiceTier != "" {
 		t.Fatalf("usage changed: %+v", event)
 	}
-	for _, model := range []any{&entities.UsageEvent{}, &entities.UsageEventArchive{}} {
-		if !db.Migrator().HasColumn(model, "EffectiveServiceTier") {
-			t.Fatal("upstream field missing")
+	for _, table := range fields {
+		for _, name := range table.names {
+			if !db.Migrator().HasColumn(table.model, name) {
+				t.Fatalf("upstream field %s missing", name)
+			}
 		}
+	}
+	var key entities.CPAAPIKey
+	if err := db.First(&key).Error; err != nil {
+		t.Fatal(err)
+	}
+	if key.KeyAlias != "bot" || key.APIKey != "fixture-key" || key.SourceType != entities.CPAAPIKeySourceNative || key.AccessProvider != "" {
+		t.Fatalf("existing native key changed: %+v", key)
+	}
+	if version == "20261028_plugin_api_key_sources" && (event.IsNativeKey != nil || event.AccessProvider != nil) {
+		t.Fatal("historical request source was backfilled")
 	}
 	original, err := gorm.Open(sqlite.Open("file:"+dbFile+"?mode=ro"), &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	closeMigrationTestDatabase(t, original)
-	if original.Migrator().HasColumn(&entities.UsageEvent{}, "EffectiveServiceTier") {
-		t.Fatal("source backup was migrated")
+	for _, table := range fields {
+		for _, name := range table.names {
+			if original.Migrator().HasColumn(table.model, name) {
+				t.Fatal("source backup was migrated")
+			}
+		}
 	}
 }

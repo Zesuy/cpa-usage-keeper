@@ -1152,10 +1152,11 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
         onAuthRequired?.();
-        return;
+        throw error;
       }
       setApiKeySettingsError(error instanceof Error ? error.message : 'Failed to update CPA API key alias');
       showTopNotice('error', t('usage_stats.api_key_settings_alias_save_failed'));
+      throw error;
     } finally {
       setApiKeySettingsSavingId(null);
     }
@@ -2444,6 +2445,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
         open={credentialDetailOpen}
         selection={currentCredentialDetailSelection}
         timeZone={credentialTimeZone}
+        fallbackFocusRef={credentialEditFallbackRef}
         onResetStats={handleCredentialStatsReset}
         onAuthRequired={onAuthRequired}
         requestLogAccessEnabled={requestLogAccessEnabled}
