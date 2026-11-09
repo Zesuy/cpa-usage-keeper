@@ -31,7 +31,10 @@ func TestUsageEventsLiveCostRevisionReplacesOldSnapshot(t *testing.T) {
 			provider := service.NewUsageService(db, emptyPricingCatalogForTest())
 			server := httptest.NewServer(api.NewRouter(nil, nil, provider, nil, api.AuthConfig{}, nil, "", api.OptionalProviders{UsageEventsLive: notifier, CostReadGate: gate}))
 			defer server.Close()
-			client := &http.Client{Timeout: 20 * time.Second}
+			// Client.Timeout covers the entire SSE response. On coarse clocks the
+			// initial checkpoint may wait for one 15s heartbeat; the no-wake reset
+			// then waits for another. Allow both intervals plus CI scheduling slack.
+			client := &http.Client{Timeout: time.Minute}
 			target := server.URL + "/api/v1/usage/events/live?range=24h"
 			resp, reader := liveTestConnect(t, client, target, nil)
 			defer resp.Body.Close()
