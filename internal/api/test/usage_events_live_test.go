@@ -141,10 +141,9 @@ func TestUsageEventsLiveSnapshotReconnectAndCostGate(t *testing.T) {
 		t.Fatalf("unexpected busy response: %+v", busy)
 	}
 	resume()
-	appendFrame := liveTestReadKind(t, reader, "append")
-	appended := appendFrame.data["events"].([]any)
-	if len(appended) != 1 || appended[0].(map[string]any)["id"] != fmt.Sprint(late[0].ID) || appended[0].(map[string]any)["cost_usd"] != 1.25 {
-		t.Fatalf("unexpected late append: %+v", appendFrame.data)
+	reset := liveTestReadKind(t, reader, "reset")
+	if reset.data["code"] != "costs_changed" {
+		t.Fatalf("cost gate recovery must invalidate old snapshot: %+v", reset)
 	}
 	resp.Body.Close()
 	missed := liveTestInsert(t, db, []entities.UsageEvent{{Timestamp: now.Add(-3 * time.Hour), Model: "match", RequestID: "same"}})
@@ -152,11 +151,12 @@ func TestUsageEventsLiveSnapshotReconnectAndCostGate(t *testing.T) {
 	reconnected, reconnectedReader := liveTestConnect(t, client, target, nil)
 	defer reconnected.Body.Close()
 	fresh := liveTestReadKind(t, reconnectedReader, "snapshot")
-	found := false
+	found, foundLate := false, false
 	for _, row := range fresh.data["events"].([]any) {
 		found = found || row.(map[string]any)["id"] == fmt.Sprint(missed[0].ID)
+		foundLate = foundLate || row.(map[string]any)["id"] == fmt.Sprint(late[0].ID)
 	}
-	if !found {
+	if !found || !foundLate {
 		t.Fatalf("reconnect snapshot omitted event committed while disconnected: %+v", fresh.data)
 	}
 	next := liveTestInsert(t, db, []entities.UsageEvent{{Timestamp: now.Add(-4 * time.Hour), Model: "match"}})

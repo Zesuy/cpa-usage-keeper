@@ -118,3 +118,35 @@ func waitForCostReadGateBlocked(t *testing.T, gate *service.CostReadGate) {
 	}
 	t.Fatal("gate did not block new reads")
 }
+
+func TestCostReadGateRevisionTracksCompletedWritePhases(t *testing.T) {
+	gate := service.NewCostReadGate()
+	lease, before, ok := gate.AcquireWithRevision()
+	if !ok {
+		t.Fatal("initial lease denied")
+	}
+	lease()
+	resume, err := gate.BlockAndDrain(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, ok := gate.AcquireWithRevision(); ok {
+		t.Fatal("write phase admitted a reader")
+	}
+	resume()
+	resume()
+	lease, after, ok := gate.AcquireWithRevision()
+	if !ok {
+		t.Fatal("completed write phase left gate blocked")
+	}
+	defer lease()
+	if after != before+1 {
+		t.Fatalf("resume revision=%d, before=%d", after, before)
+	}
+	var independent *service.CostReadGate
+	releaseNil, revision, ok := independent.AcquireWithRevision()
+	if !ok || revision != 0 {
+		t.Fatal("nil gate must remain supported")
+	}
+	releaseNil()
+}

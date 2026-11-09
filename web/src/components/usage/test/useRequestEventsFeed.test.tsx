@@ -320,4 +320,40 @@ describe('useRequestEventsFeed', () => {
     expect(latest.autoLoadMore).toBe(false);
     expect(latest.error).toBe('cursor failed');
   });
+
+  it('reconnects on cost recalculation reset, replaces old snapshot event cost, and discards pending appends', async () => {
+    const oldEvent = { ...event('1'), cost_usd: 0.10 };
+    await emit(0, 'snapshot', snapshot([oldEvent]));
+    expect(latest.events[0].id).toBe('1');
+    expect(latest.events[0].cost_usd).toBe(0.10);
+
+    // Queue an append in the first stream; flushTimer is scheduled for 250ms.
+    const pendingEvent = { ...event('2'), cost_usd: 0.05 };
+    await emit(0, 'append', { ...bounds, events: [pendingEvent] });
+
+    // Server cost recalculation completes and triggers a reset frame before flushTimer fires.
+    await emit(0, 'reset', { code: 'costs_changed' });
+
+    // Pending append from the old connection must be discarded and never flush into state.
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 300)); });
+    expect(latest.events.map((row) => row.id)).toEqual(['1']);
+    expect(latest.events[0].cost_usd).toBe(0.10);
+
+    // The reset must have aborted the first stream and opened a new live connection.
+    expect(openUsageEventsLive).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(openUsageEventsLive).mock.calls[0][2].aborted).toBe(true);
+
+    // New connection delivers the updated snapshot with the recalculated cost for ID 1.
+    const newEvent = { ...event('1'), cost_usd: 0.25 };
+    await emit(1, 'snapshot', snapshot([newEvent]));
+    expect(latest.events).toHaveLength(1);
+    expect(latest.events[0].id).toBe('1');
+    expect(latest.events[0].cost_usd).toBe(0.25);
+
+    // Extra wait confirms no lingering timer from stream 0 overwrites the new snapshot.
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 300)); });
+    expect(latest.events).toHaveLength(1);
+    expect(latest.events[0].id).toBe('1');
+    expect(latest.events[0].cost_usd).toBe(0.25);
+  });
 });

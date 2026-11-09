@@ -178,12 +178,14 @@ func registerUsageEventsLiveRoute(router gin.IRoutes, usage service.UsageProvide
 }
 
 type usageEventsLiveStream struct {
-	c          *gin.Context
-	provider   service.UsageEventsLiveProvider
-	gate       *service.CostReadGate
-	auth       *authHandler
-	identities service.UsageIdentityProvider
-	keys       service.CPAAPIKeyProvider
+	c               *gin.Context
+	provider        service.UsageEventsLiveProvider
+	gate            *service.CostReadGate
+	auth            *authHandler
+	identities      service.UsageIdentityProvider
+	keys            service.CPAAPIKeyProvider
+	costRevision    uint64
+	hasCostRevision bool
 }
 
 // 每批非空事件使用当前活跃来源和 API Key 映射，避免长连接复用建流时的旧展示信息。
@@ -243,11 +245,18 @@ func (s *usageEventsLiveStream) batch(fn func(context.Context) error) error {
 	if !liveSessionValid(s.c, s.auth) {
 		return context.Canceled
 	}
-	release, ok := s.gate.Acquire()
+	release, revision, ok := s.gate.AcquireWithRevision()
 	if !ok {
 		return errLiveBusy
 	}
 	defer release()
+	if s.hasCostRevision && s.costRevision != revision {
+		// Old IDs will never be replayed by catchUp. Reset before any rows or
+		// heartbeat from a newer cost generation can mix with the old snapshot.
+		_ = s.send("reset", gin.H{"code": "costs_changed"})
+		return context.Canceled
+	}
+	s.costRevision, s.hasCostRevision = revision, true
 	ctx, cancel := context.WithTimeout(s.c.Request.Context(), liveWriteTimeout)
 	defer cancel()
 	return fn(ctx)

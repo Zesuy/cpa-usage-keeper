@@ -10,10 +10,11 @@ var ErrCostReadGateAlreadyBlocked = errors.New("cost reads are already blocked")
 
 // CostReadGate 只协调费用 HTTP 读取与重算写入；非费用统计及 CPA 接收不占用此许可。
 type CostReadGate struct {
-	mu      sync.Mutex
-	blocked bool
-	active  int
-	drained chan struct{}
+	mu       sync.Mutex
+	blocked  bool
+	active   int
+	revision uint64
+	drained  chan struct{}
 }
 
 // NewCostReadGate 创建单个 App 内共享的费用读取许可。
@@ -24,13 +25,21 @@ func NewCostReadGate() *CostReadGate {
 // Acquire 非阻塞取得一次费用读取许可。调用方须在完整响应或流式导出结束后释放；释放函数可重复调用。
 // nil gate 表示独立路由没有接入重算协调。
 func (g *CostReadGate) Acquire() (release func(), ok bool) {
+	release, _, ok = g.AcquireWithRevision()
+	return release, ok
+}
+
+// AcquireWithRevision binds a read lease to the completed write generation.
+// Long-lived consumers must replace cached rows when this revision changes,
+// even if the entire blocked interval fell between two reads.
+func (g *CostReadGate) AcquireWithRevision() (release func(), revision uint64, ok bool) {
 	if g == nil {
-		return func() {}, true
+		return func() {}, 0, true
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if g.blocked {
-		return nil, false
+		return nil, g.revision, false
 	}
 	g.active++
 	return sync.OnceFunc(func() {
@@ -41,7 +50,7 @@ func (g *CostReadGate) Acquire() (release func(), ok bool) {
 			close(g.drained)
 			g.drained = nil
 		}
-	}), true
+	}), g.revision, true
 }
 
 // BlockAndDrain 立即拒绝新费用请求，再等已获许可的完整 HTTP 响应结束。
@@ -69,6 +78,8 @@ func (g *CostReadGate) BlockAndDrain(ctx context.Context) (resume func(), err er
 
 	resume = sync.OnceFunc(func() {
 		g.mu.Lock()
+		// Even a failed/canceled write phase may have changed a subset of costs.
+		g.revision++
 		g.blocked = false
 		g.mu.Unlock()
 	})
