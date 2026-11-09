@@ -19,7 +19,9 @@ func TestDayBoundsUsesRealCalendarDate(t *testing.T) {
 		{"Australia/Lord_Howe", "2026-10-04", "2026-10-04T00:00:00+10:30", "2026-10-05T00:00:00+11:00"},
 		{"Australia/Lord_Howe", "2026-04-05", "2026-04-05T00:00:00+11:00", "2026-04-06T00:00:00+10:30"},
 		{"Asia/Kathmandu", "2026-03-08", "2026-03-08T00:00:00+05:45", "2026-03-09T00:00:00+05:45"},
-		{"America/Havana", "2026-11-01", "2026-11-01T00:00:00-04:00", "2026-11-02T00:00:00-05:00"},
+		// Use an observed historical fallback: tzdb 2026f canceled Cuba's
+		// November 2026 fallback, so that date no longer exercises repeated midnight.
+		{"America/Havana", "2020-11-01", "2020-11-01T00:00:00-04:00", "2020-11-02T00:00:00-05:00"},
 	} {
 		t.Run(sample.zone+"/"+sample.date, func(t *testing.T) {
 			location, err := time.LoadLocation(sample.zone)
@@ -66,5 +68,29 @@ func TestCalendarIterationDoesNotDriftOrInventSkippedDate(t *testing.T) {
 	after, _ := timeutil.DayBounds(date.AddDays(1), location)
 	if !before.End.Equal(after.Start) || date.AddDays(-1).DaysUntil(date.AddDays(1)) != 2 {
 		t.Fatal("calendar and elapsed date semantics mixed")
+	}
+}
+
+// Keep repeated-midnight behavior independent of political changes and host tzdb.
+func TestDayBoundsRepeatedMidnightKeepsBothOccurrences(t *testing.T) {
+	location := posixLocation(t, "CST5CDT,M3.2.0/0,M11.1.0/1")
+	date := timeutil.CivilDate{Year: 2026, Month: time.November, Day: 1}
+	bounds, ok := timeutil.DayBounds(date, location)
+	if !ok || bounds.Start.Format(time.RFC3339) != "2026-11-01T00:00:00-04:00" || bounds.End.Format(time.RFC3339) != "2026-11-02T00:00:00-05:00" || bounds.End.Sub(bounds.Start) != 25*time.Hour {
+		t.Fatalf("repeated-midnight day lost an hour: %+v present=%v", bounds, ok)
+	}
+	for _, value := range []string{"2026-11-01T00:30:00-04:00", "2026-11-01T00:30:00-05:00"} {
+		at, err := time.Parse(time.RFC3339, value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if at.Before(bounds.Start) || !at.Before(bounds.End) || timeutil.DateOf(at.In(location)) != date {
+			t.Fatalf("midnight occurrence %s missing from bounds %+v", value, bounds)
+		}
+	}
+	before, beforeOK := timeutil.DayBounds(date.AddDays(-1), location)
+	after, afterOK := timeutil.DayBounds(date.AddDays(1), location)
+	if !beforeOK || !afterOK || !before.End.Equal(bounds.Start) || !bounds.End.Equal(after.Start) {
+		t.Fatal("repeated midnight broke adjacent calendar boundaries")
 	}
 }
