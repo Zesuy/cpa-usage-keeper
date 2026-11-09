@@ -72,13 +72,42 @@ describe('Antigravity quota display', () => {
       expect(text.includes(label)).toBe(groups[group])
       expect(text.includes(`${bucket}-tokens`)).toBe(groups[group])
       expect(text.includes(`${bucket}-cost`)).toBe(groups[group])
-      expect(container.innerHTML.includes(`${label} description`)).toBe(groups[group])
+      if (group !== 'argon') {
+        expect(container.innerHTML.includes(`${label} description`)).toBe(groups[group])
+      }
     }
     expect(container.textContent?.includes('antigravity_quota_display_hidden')).toBe(!Object.values(groups).some(Boolean))
     expect(container.textContent).not.toContain('credentials_quota_unavailable')
     // Filtering must not modify the original quota rows or their server keys.
     expect(groupedRow.displayQuotas).toHaveLength(4)
     expect(groupedRow.displayQuotas[3].groupKey).toBe('antigravity-gemini-models')
+  })
+
+  it.each(preferences)('renders only enabled groups with independent Argon key for %j', async (groups: AntigravityQuotaDisplayPreferences) => {
+    const rowWithArgonKey: CredentialRow = { ...row, displayQuotas: [
+      quota('Gemini Models', 'gemini-5h'),
+      quota('Gemini Models', 'gemini-weekly'),
+      quota('Claude and GPT models', 'claude-weekly', 'antigravity-claude-and-gpt-models'),
+      quota('Gemini 4 Argon', 'argon-weekly', 'antigravity-gemini-4-argon'),
+    ] }
+    useAntigravityQuotaDisplayStore.setState({ groups })
+    await act(async () => root.render(<CredentialQuotaPanel row={rowWithArgonKey} quotaUsageMode="current" />))
+    expect(container.querySelectorAll('[data-quota-group]')).toHaveLength(Object.values(groups).filter(Boolean).length)
+    for (const [group, label, bucket] of [
+      ['gemini', 'Gemini Models', 'gemini-5h'],
+      ['claudeGpt', 'Claude and GPT models', 'claude-weekly'],
+      ['argon', 'Gemini 4 Argon', 'argon-weekly'],
+    ] as const) {
+      const text = container.textContent ?? ''
+      expect(text.includes(label)).toBe(groups[group])
+      expect(text.includes(`${bucket}-tokens`)).toBe(groups[group])
+      expect(text.includes(`${bucket}-cost`)).toBe(groups[group])
+      if (group !== 'argon') {
+        expect(container.innerHTML.includes(`${label} description`)).toBe(groups[group])
+      }
+    }
+    expect(container.textContent?.includes('antigravity_quota_display_hidden')).toBe(!Object.values(groups).some(Boolean))
+    expect(container.textContent).not.toContain('credentials_quota_unavailable')
   })
 
   it('updates both the real credential list and open detail drawer from settings, then restores the choices', async () => {

@@ -50,18 +50,21 @@ type StatusRouteConfig struct {
 }
 
 type OptionalProviders struct {
-	MCPAPIKey          string
-	QuotaSummaryAPIKey string
-	CostReadGate       *service.CostReadGate
-	UsageIdentity      service.UsageIdentityProvider
-	ErrorEvents        service.ErrorEventProvider
-	Quota              QuotaProvider
-	CPAAPIKeys         service.CPAAPIKeyProvider
-	Credentials        service.CredentialsManagementProvider
-	CredentialStatus   service.CredentialStatusProvider
-	CredentialPriority service.CredentialPriorityProvider
-	RequestLogs        service.RequestLogProvider
-	Status             StatusRouteConfig
+	MCPAPIKey              string
+	QuotaSummaryAPIKey     string
+	CostReadGate           *service.CostReadGate
+	UsageEventsLive        *service.UsageEventsNotifier
+	UsageEventsLiveContext context.Context
+	UsageIdentity          service.UsageIdentityProvider
+	ErrorEvents            service.ErrorEventProvider
+	Quota                  QuotaProvider
+	CPAAPIKeys             service.CPAAPIKeyProvider
+	Credentials            service.CredentialsManagementProvider
+	CredentialStatus       service.CredentialStatusProvider
+	CredentialPriority     service.CredentialPriorityProvider
+	RequestLogs            service.RequestLogProvider
+	Models                 service.ModelsFetcher
+	Status                 StatusRouteConfig
 }
 
 // newRouterEngine 为启动外壳和完整业务路由装配相同的可信代理与异常恢复设置。
@@ -106,6 +109,8 @@ func NewRouter(
 
 	var usageIdentityProvider service.UsageIdentityProvider
 	var costReadGate *service.CostReadGate
+	var usageEventsLive *service.UsageEventsNotifier
+	var usageEventsLiveContext context.Context
 	var errorEventProvider service.ErrorEventProvider
 	var quotaProvider QuotaProvider
 	var cpaAPIKeyProvider service.CPAAPIKeyProvider
@@ -113,12 +118,15 @@ func NewRouter(
 	var credentialStatusProvider service.CredentialStatusProvider
 	var credentialPriorityProvider service.CredentialPriorityProvider
 	var requestLogProvider service.RequestLogProvider
+	var modelsProvider service.ModelsFetcher
 	var statusConfig StatusRouteConfig
 	var summaryAPIKey string
 	if len(optionalProviders) > 0 {
 		summaryAPIKey = optionalProviders[0].QuotaSummaryAPIKey
 		usageIdentityProvider = optionalProviders[0].UsageIdentity
 		costReadGate = optionalProviders[0].CostReadGate
+		usageEventsLive = optionalProviders[0].UsageEventsLive
+		usageEventsLiveContext = optionalProviders[0].UsageEventsLiveContext
 		errorEventProvider = optionalProviders[0].ErrorEvents
 		quotaProvider = optionalProviders[0].Quota
 		cpaAPIKeyProvider = optionalProviders[0].CPAAPIKeys
@@ -126,6 +134,7 @@ func NewRouter(
 		credentialStatusProvider = optionalProviders[0].CredentialStatus
 		credentialPriorityProvider = optionalProviders[0].CredentialPriority
 		requestLogProvider = optionalProviders[0].RequestLogs
+		modelsProvider = optionalProviders[0].Models
 		statusConfig = optionalProviders[0].Status
 	}
 	registerExternalQuotaSummaryRoute(apiV1, quotaProvider, summaryAPIKey, costReadGate, basePath)
@@ -152,6 +161,7 @@ func NewRouter(
 	registerUsageActivityRoute(adminProtected, usageProvider)
 	registerUsageAnalysisRoute(adminProtected, usageProvider, cpaAPIKeyProvider)
 	registerUsageEventsRoute(adminProtected, usageProvider, usageIdentityProvider, cpaAPIKeyProvider, requestLogProvider, requestLogDownloadTokens, statusConfig.CPARequestLogAccessEnabled)
+	registerUsageEventsLiveRoute(adminProtected, usageProvider, usageIdentityProvider, cpaAPIKeyProvider, usageEventsLive, costReadGate, authHandler, usageEventsLiveContext)
 	registerUsageIdentityRoutes(adminProtected, usageIdentityProvider)
 	registerErrorEventRoutes(adminProtected, errorEventProvider)
 	registerCredentialManagementRoutes(adminProtected, credentialsProvider)
@@ -160,6 +170,7 @@ func NewRouter(
 	registerAuthSessionManagementRoutes(adminProtected, authHandler)
 	registerCPAAPIKeyRoutes(adminProtected, cpaAPIKeyProvider, usageProvider)
 	registerPricingRoutes(adminProtected, pricingProvider)
+	registerModelsRoutes(adminProtected, modelsProvider)
 	registerQuotaRoutes(adminProtected, quotaProvider)
 
 	keyViewerProtected := apiV1.Group("")

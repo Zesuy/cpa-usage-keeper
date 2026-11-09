@@ -112,7 +112,7 @@ func summaryPoolForRow(provider string, row QuotaRow) string {
 	if provider != "antigravity" || row.Scope != "quota_group" {
 		return ""
 	}
-	// Argon currently shares the Gemini server key: exclude by title before key matching.
+	// Also reject legacy Argon rows that used the Gemini key before upstream split it.
 	for _, word := range strings.FieldsFunc(strings.ToLower(row.GroupLabel), func(r rune) bool { return r < 'a' || r > 'z' }) {
 		if word == "argon" {
 			return ""
@@ -123,6 +123,29 @@ func summaryPoolForRow(provider string, row QuotaRow) string {
 		return row.GroupKey
 	}
 	return ""
+}
+
+// Only persisted Gemini data needs a new namespace: older observations may have
+// counted independent Argon usage in Gemini. Public pool keys remain unchanged.
+const summaryGeminiStoragePool = antigravityGeminiGroupKey + ":argon-attribution-v2"
+
+func summaryStoredPool(provider, pool string) string {
+	if provider == "antigravity" && pool == antigravityGeminiGroupKey {
+		return summaryGeminiStoragePool
+	}
+	return pool
+}
+
+func summaryLoadedPool(provider, pool string) (string, bool) {
+	if provider == "antigravity" {
+		if pool == antigravityGeminiGroupKey {
+			return "", false
+		}
+		if pool == summaryGeminiStoragePool {
+			return antigravityGeminiGroupKey, true
+		}
+	}
+	return pool, true
 }
 
 func summaryPlan(identity entities.UsageIdentity, response *CheckResponse) string {
@@ -243,7 +266,7 @@ func (s *Service) rememberCapacityEstimates(authIndex, provider string, response
 		if row.ObservedAt != nil {
 			rowObservedAt = *row.ObservedAt
 		}
-		values = append(values, entities.QuotaCapacityEstimate{AuthIndex: authIndex, Provider: normalizeIdentityType(provider), Pool: pool, WindowSeconds: *row.Window.Seconds, Tokens: *row.WindowUsageEstimateTokens, CostUSD: *row.WindowUsageEstimateCost, ObservedAt: rowObservedAt})
+		values = append(values, entities.QuotaCapacityEstimate{AuthIndex: authIndex, Provider: normalizeIdentityType(provider), Pool: summaryStoredPool(normalizeIdentityType(provider), pool), WindowSeconds: *row.Window.Seconds, Tokens: *row.WindowUsageEstimateTokens, CostUSD: *row.WindowUsageEstimateCost, ObservedAt: rowObservedAt})
 	}
 	if len(values) == 0 {
 		return
@@ -334,6 +357,11 @@ func (s *Service) quotaSummaryAt(ctx context.Context, now time.Time) (SummaryRes
 	}
 	histories := make(map[capacityKey]entities.QuotaCapacityEstimate, len(history))
 	for _, value := range history {
+		pool, ok := summaryLoadedPool(value.Provider, value.Pool)
+		if !ok {
+			continue
+		}
+		value.Pool = pool
 		histories[capacityKey{value.AuthIndex, value.Provider, value.Pool, value.WindowSeconds}] = value
 	}
 	for _, task := range tasks {

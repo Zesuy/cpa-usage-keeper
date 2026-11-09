@@ -120,7 +120,7 @@ func (s *Service) rememberSummarySnapshotForIdentity(identity entities.UsageIden
 		if !replace {
 			for key, count := range counts {
 				if count > 1 {
-					if err := tx.Where("auth_index = ? AND provider = ? AND pool = ? AND window_seconds = ?", auth, provider, key.pool, key.seconds).Delete(&entities.QuotaSummarySnapshot{}).Error; err != nil {
+					if err := tx.Where("auth_index = ? AND provider = ? AND pool = ? AND window_seconds = ?", auth, provider, summaryStoredPool(provider, key.pool), key.seconds).Delete(&entities.QuotaSummarySnapshot{}).Error; err != nil {
 						return err
 					}
 				}
@@ -129,11 +129,15 @@ func (s *Service) rememberSummarySnapshotForIdentity(identity entities.UsageIden
 		if len(values) == 0 {
 			return nil
 		}
+		storedValues := append([]entities.QuotaSummarySnapshot(nil), values...)
+		for i := range storedValues {
+			storedValues[i].Pool = summaryStoredPool(provider, storedValues[i].Pool)
+		}
 		return tx.Clauses(clause.OnConflict{
 			Columns:   []clause.Column{{Name: "auth_index"}, {Name: "provider"}, {Name: "pool"}, {Name: "window_seconds"}},
 			DoUpdates: clause.AssignmentColumns([]string{"plan_key", "identity_plan_key", "payload", "observed_at"}),
 			Where:     clause.Where{Exprs: []clause.Expression{clause.Expr{SQL: "excluded.observed_at >= quota_summary_snapshots.observed_at"}}},
-		}).Create(&values).Error
+		}).Create(&storedValues).Error
 	})
 	if err != nil {
 		logrus.WithError(err).Warn("quota summary snapshot persistence failed")
@@ -148,6 +152,11 @@ func (s *Service) loadSummarySnapshots(ctx context.Context, indexes []string) (m
 			return nil, err
 		}
 		for _, value := range stored {
+			pool, ok := summaryLoadedPool(value.Provider, value.Pool)
+			if !ok {
+				continue
+			}
+			value.Pool = pool
 			if scope, ok := s.summarySnapshotScopes[value.AuthIndex]; ok && (scope.complete || scope.provider != value.Provider || scope.plan != value.PlanKey) {
 				continue
 			}
